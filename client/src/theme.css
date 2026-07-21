@@ -355,3 +355,11 @@ table.decl td:first-child{font-weight:700}table.decl td:last-child{color:var(--i
   .dict-bar{padding:8px 10px 0;gap:6px}
   .dict-btn{padding:6px 8px}
 }
+/* Mehrzeiliges, mitwachsendes Eingabefeld (Diktat!): Knöpfe unten ausrichten */
+.inputbar{align-items:flex-end}
+.inputbar .in{resize:none;line-height:1.45;max-height:170px;overflow-y:auto;min-height:50px;font-family:inherit}
+.in-wrap .in-clear{top:13px;transform:none}
+@media (max-width:520px){
+  .inputbar .in{min-height:42px}
+  .in-wrap .in-clear{top:10px}
+}

@@ -279,6 +279,7 @@ export default function ChatPanel({
   const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   // iOS-PWA: webkitSpeechRecognition existiert, scheitert aber mit
   // service-not-allowed — dann dauerhaft auf den Mikrofontest ausweichen
   const recFailedRef = useRef(false)
@@ -294,6 +295,15 @@ export default function ChatPanel({
   useEffect(() => {
     onBusyChange(busy)
   }, [busy, onBusyChange])
+
+  // Eingabefeld wächst mit dem Inhalt mit (bis max-height aus dem CSS) —
+  // besonders wichtig beim Diktieren, damit der ganze Text sichtbar bleibt
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 170)}px`
+  }, [input])
 
   // Fehlt die serbische Stimme, EINMAL erklären statt stumm zu bleiben
   const srHintShownRef = useRef(false)
@@ -766,10 +776,19 @@ export default function ChatPanel({
           <Icon id="i-mic" />
         </button>
         <span className="in-wrap">
-          <input
+          <textarea
+            ref={inputRef}
             className="in"
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter sendet, Shift+Enter macht eine neue Zeile (Chat-Standard)
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void send()
+              }
+            }}
             maxLength={MAX_INPUT_CHARS}
             placeholder={rec.active ? 'Sprich — dein Text erscheint hier…' : 'Napiši poruku… · Schreib hier…'}
             aria-label="Nachricht"
