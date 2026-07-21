@@ -147,8 +147,14 @@ export function useSpeech() {
     }
     u.onend = finish
     u.onerror = finish
-    speechSynthesis.resume() // Chrome kann in pausiertem Zustand hängen
-    speechSynthesis.speak(u)
+    // iOS-Eigenheit: speak() direkt nach cancel() bleibt oft stumm —
+    // kurze Verzögerung entkoppelt beides zuverlässig
+    timersRef.current.push(
+      window.setTimeout(() => {
+        speechSynthesis.resume() // Chrome kann in pausiertem Zustand hängen
+        speechSynthesis.speak(u)
+      }, 60),
+    )
     return true
   }
 
@@ -167,7 +173,27 @@ export function useSpeech() {
       } catch {
         // Speichern optional
       }
-      if (!next) cancel()
+      if (!next) {
+        cancel()
+      } else {
+        // Hörbarer Selbsttest direkt in der Klick-Geste: entsperrt Mobil-Audio
+        // UND zeigt sofort, ob die Umgebung (Lautstärke/Stummschalter) passt
+        prime()
+        clearTimers()
+        timersRef.current.push(
+          window.setTimeout(() => {
+            const u = new SpeechSynthesisUtterance('Ton ist an! Zvuk je uključen!')
+            const v = pickVoice(SPEECH_LANG.de)
+            if (v) u.voice = v
+            u.lang = SPEECH_LANG.de
+            u.onstart = () => setSpeaking(true)
+            u.onend = () => setSpeaking(false)
+            u.onerror = () => setSpeaking(false)
+            speechSynthesis.resume()
+            speechSynthesis.speak(u)
+          }, 80),
+        )
+      }
       return next
     })
   }
@@ -198,13 +224,15 @@ function recognitionCtor(): (new () => RecognitionLike) | null {
  * Einfache Diktat-Erkennung: start() hört EINEN Satz, liefert ihn an onFinal
  * und stoppt. Serbisch-Erkennung ist browserabhängig wackelig — Phase 3 (Whisper).
  */
-export function useRecognition(onFinal: (text: string) => void) {
+export function useRecognition(onFinal: (text: string) => void, onError?: (code: string) => void) {
   const supported = typeof window !== 'undefined' && recognitionCtor() !== null
   const [listening, setListening] = useState(false)
   const [interim, setInterim] = useState('')
   const recRef = useRef<RecognitionLike | null>(null)
   const onFinalRef = useRef(onFinal)
   onFinalRef.current = onFinal
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
 
   function start(lang: Lang) {
     const Ctor = recognitionCtor()
@@ -229,10 +257,11 @@ export function useRecognition(onFinal: (text: string) => void) {
       setInterim('')
       recRef.current = null
     }
-    rec.onerror = () => {
+    rec.onerror = (e) => {
       setListening(false)
       setInterim('')
       recRef.current = null
+      onErrorRef.current?.(e.error ?? 'unknown')
     }
     recRef.current = rec
     setListening(true)

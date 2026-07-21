@@ -44,18 +44,30 @@ export default function VoiceBar({
         ? { lead: `${characterName} spricht …`, t2: `${characterName} govori …` }
         : { lead: `${characterName} hört dir zu …`, t2: `${characterName} sluša te …` }
 
-  const hint = micError ?? (mode === 'user' ? ZONE_HINT[zone] : voiceEnabled ? '🔊 Ton an' : '🔇 Ton aus')
-  const hintClass = micError ? 'vhint zone-loud' : mode === 'user' ? `vhint zone-${zone}` : 'vhint'
+  const hint =
+    micError ??
+    (listening
+      ? '🎙 Sprich jetzt … · Govori sada'
+      : mode === 'user'
+        ? ZONE_HINT[zone]
+        : voiceEnabled
+          ? '🔊 Ton an'
+          : '🔇 Ton aus')
+  const hintClass = micError ? 'vhint zone-loud' : mode === 'user' ? `vhint zone-${listening ? 'good' : zone}` : 'vhint'
+
+  // Echte Pegel-Balken nur im reinen Mikrofontest; während der Spracherkennung
+  // (die das Mikro exklusiv hält) animierte Balken
+  const liveBars = mode === 'user' && !listening
 
   return (
     <div className="voicebar" data-state={state}>
       <span className="vdot" />
-      <div className={mode === 'user' ? 'wave live' : 'wave'}>
+      <div className={liveBars ? 'wave live' : 'wave'}>
         {Array.from({ length: 9 }, (_, i) => (
           <i
             key={i}
             style={
-              mode === 'user'
+              liveBars
                 ? { transform: `scaleY(${Math.max(0.2, levels[i] ?? 0)})` }
                 : { animationDelay: `${i * 0.08}s`, animationDuration: `${0.7 + ((i * 7) % 5) / 10}s` }
             }

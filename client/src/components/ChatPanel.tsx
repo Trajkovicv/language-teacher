@@ -144,20 +144,32 @@ export default function ChatPanel({
     [],
   )
 
-  // Diktat: erkannter Satz wird direkt gesendet, Mikrofon danach freigegeben
-  const rec = useRecognition((text) => {
-    mic.onStop()
-    void send(text)
-  })
+  // Diktat: erkannter Satz wird direkt gesendet
+  const rec = useRecognition(
+    (text) => void send(text),
+    (code) => {
+      if (code === 'no-speech') setNotice('Nichts verstanden — tippe aufs Mikro und sprich direkt los.')
+      else if (code === 'not-allowed' || code === 'service-not-allowed')
+        setNotice('Mikrofon nicht erlaubt — bitte die Berechtigung im Browser/System freigeben.')
+      else setNotice('Spracheingabe hat nicht geklappt — bitte nochmal versuchen.')
+    },
+  )
 
+  // WICHTIG: Erkennung und Pegel-Mikrofon NIE gleichzeitig — auf vielen Handys
+  // kann nur einer das Mikrofon halten, die Erkennung bräche sonst sofort ab.
+  // Mit Erkennung: nur Diktat. Ohne (z. B. Firefox): der reine Mikrofontest.
   function micToggle() {
+    voice.prime() // Mobile: Audio in der Geste entsperren
     if (mic.active || rec.listening) {
       mic.onStop()
       rec.stop()
+      return
+    }
+    voice.cancel()
+    if (rec.supported) {
+      rec.start(lang)
     } else {
-      voice.cancel()
       mic.onToggle()
-      if (rec.supported) rec.start(lang)
     }
   }
 

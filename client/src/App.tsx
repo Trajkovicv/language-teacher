@@ -146,7 +146,7 @@ export default function App() {
             <div className="mark">{character.mark}</div>
             <div>
               <h1>{character.name}</h1>
-              <p>Sprachlern-App · Serbisch</p>
+              <p>Sprachlern-App · Serbisch · v{__BUILD_ID__}</p>
             </div>
           </div>
           <div className="spacer" />

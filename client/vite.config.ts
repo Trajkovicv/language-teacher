@@ -4,6 +4,12 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    // Sichtbare Build-Kennung (UTC), z. B. "21.07 14:32"
+    __BUILD_ID__: JSON.stringify(
+      new Date().toISOString().slice(5, 16).replace('-', '.').replace('T', ' '),
+    ),
+  },
   plugins: [
     react(),
     // Macht die App installierbar (App-Icon auf Handy/Desktop, Standalone-Fenster)
