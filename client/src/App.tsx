@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetState
 import Icons, { Icon } from './components/Icons'
 import Bilingual from './components/Bilingual'
 import Sidebar, { CHARACTERS, type Character, type CharacterId } from './components/Sidebar'
-import ChatPanel, { type UiMessage } from './components/ChatPanel'
+import ChatPanel, { type Draft, type UiMessage } from './components/ChatPanel'
 import DictionaryPanel from './components/DictionaryPanel'
 import ExercisePanel from './components/ExercisePanel'
 import { apiUrl } from './lib/api'
@@ -64,6 +64,12 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('chat')
   const [character, setCharacter] = useState<Character>(CHARACTERS[0])
   const [histories, setHistories] = useState<Record<CharacterId, UiMessage[]>>({ mila: [], luka: [], ana: [] })
+  // Entwürfe (Text + Anhang) pro Charakter — überleben den key-Remount des ChatPanels
+  const [drafts, setDrafts] = useState<Record<CharacterId, Draft>>({
+    mila: { input: '', attachment: null },
+    luka: { input: '', attachment: null },
+    ana: { input: '', attachment: null },
+  })
   const [teacherBusy, setTeacherBusy] = useState(false)
   const [savedWords, setSavedWords] = useState<string[]>(loadSavedWords)
   const [minutes, setMinutes] = useState(0)
@@ -85,11 +91,13 @@ export default function App() {
     localStorage.setItem('lt-theme', theme)
   }, [theme])
 
-  // Mobile Autoplay-Sperre: beim allerersten Tippen die Sprach-Engine entsperren
+  // Mobile Autoplay-Sperre: beim allerersten Tippen die Sprach-Engine entsperren.
+  // WICHTIG 'click', nicht 'pointerdown': auf Touch-Geräten erzeugt erst
+  // pointerup/click eine User-Activation — pointerdown würde den Unlock verwerfen.
   useEffect(() => {
     const prime = () => voice.prime()
-    window.addEventListener('pointerdown', prime, { once: true, capture: true })
-    return () => window.removeEventListener('pointerdown', prime, { capture: true })
+    window.addEventListener('click', prime, { once: true, capture: true })
+    return () => window.removeEventListener('click', prime, { capture: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -158,7 +166,16 @@ export default function App() {
               <p
                 style={{ cursor: 'pointer' }}
                 title="Antippen: Audio-Diagnose"
+                role="button"
+                tabIndex={0}
+                aria-label="Audio-Diagnose anzeigen"
                 onClick={() => window.alert(`Language Teacher v${__BUILD_ID__}\n\n${voice.diagnostics()}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    window.alert(`Language Teacher v${__BUILD_ID__}\n\n${voice.diagnostics()}`)
+                  }
+                }}
               >
                 Sprachlern-App · Serbisch · v{__BUILD_ID__}
               </p>
@@ -229,6 +246,10 @@ export default function App() {
               characterName={character.name}
               messages={histories[character.id]}
               setMessages={setMessagesFor(character.id)}
+              draft={drafts[character.id]}
+              onDraftChange={(update) =>
+                setDrafts((d) => ({ ...d, [character.id]: update(d[character.id]) }))
+              }
               onBusyChange={setTeacherBusy}
               warning={warning}
               mic={{
@@ -257,7 +278,8 @@ export default function App() {
               onToggleSaved={toggleSaved}
               onSpeak={(text) => {
                 voice.prime()
-                speakAs(text, 'sr', { force: true })
+                // explicit: gezielter Tap aufs Lautsprecher-Symbol spricht auch bei „Ton aus"
+                speakAs(text, 'sr', { force: true, explicit: true })
               }}
             />
             <ExercisePanel active={tab === 'ex'} lang={lang} />

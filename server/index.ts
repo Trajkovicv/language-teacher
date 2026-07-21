@@ -2,7 +2,15 @@ import './env.js';
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { CLAUDE_MODEL, createJson, streamChat, type ChatMessage, type ContentBlock } from './claude.js';
+import {
+  CLAUDE_MODEL,
+  createJson,
+  overDailyBudget,
+  recordUsage,
+  streamChat,
+  type ChatMessage,
+  type ContentBlock,
+} from './claude.js';
 import { synthesize, ttsConfigured, type TtsGender, type TtsLang } from './tts.js';
 import {
   dictionarySystemPrompt,
@@ -16,9 +24,15 @@ const app = express();
 // Hinter genau einem Reverse-Proxy (Render): sonst wäre req.ip für alle Nutzer
 // die Proxy-Adresse und das Pro-IP-Rate-Limit ein globales Limit.
 // Bewusst 1 statt true (true triggert die Permissiv-Warnung von express-rate-limit).
-app.set('trust proxy', 1);
-// 10 MB wegen Foto-/PDF-Anhängen (Base64 im JSON-Body); Text-Limits weiter unten
-app.use(express.json({ limit: '10mb' }));
+// NUR in Produktion: ohne Proxy davor (Dev/LAN) wäre X-Forwarded-For sonst frei
+// fälschbar und das Pro-IP-Limit umgehbar.
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+
+// Body-Parser bewusst PRO ROUTE (nicht global) und erst NACH Limiter+Zugangscode:
+// niemand soll ungeprüft Multi-MB-Bodies parsen lassen. Nur der Chat braucht
+// die 10 MB (Foto-/PDF-Anhänge als Base64), alle anderen kommen mit KB aus.
+const jsonBig = express.json({ limit: '10mb' });
+const jsonSmall = express.json({ limit: '64kb' });
 
 // Zusätzliche erlaubte Origins fürs Hosting (z. B. https://<name>.github.io), kommagetrennt
 const extraOrigins = (process.env.CLIENT_ORIGINS ?? '')
@@ -55,6 +69,17 @@ const apiLimiter = rateLimit({
 
 function parsePrimaryLang(value: unknown): PrimaryLang {
   return value === 'en' || value === 'sr' ? value : 'de';
+}
+
+// Tages-Ausgabenbremse (siehe claude.ts): freundlich pausieren statt Budget verbrennen
+function requireDailyBudget(_req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (overDailyBudget()) {
+    res.status(429).json({
+      error: 'Das Tages-Kontingent ist aufgebraucht — morgen geht es weiter! (Schutz deines Kostenlimits)',
+    });
+    return;
+  }
+  next();
 }
 
 app.get('/api/health', (_req, res) => {
@@ -137,7 +162,9 @@ function parseMessages(body: unknown): ChatMessage[] | null {
   return messages;
 }
 
-app.post('/api/chat', requireAccessCode, apiLimiter, (req, res) => {
+// Reihenfolge wichtig: Limiter zuerst (zählt auch falsche Zugangscodes —
+// Brute-Force-Schutz), dann Zugangscode, dann erst der teure Body-Parser.
+app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig, (req, res) => {
   const messages = parseMessages(req.body);
   const character = isCharacterName(req.body?.character) ? req.body.character : 'Mila';
   const pauseMessage = `${character} macht kurz Pause… Versuch es gleich noch einmal.`;
@@ -187,8 +214,12 @@ app.post('/api/chat', requireAccessCode, apiLimiter, (req, res) => {
   // Event-Lücke jemals als unhandled rejection den Prozess beendet.
   stream.done().catch(() => {});
 
-  // Client hat Tab geschlossen / Anfrage abgebrochen → Claude-Stream stoppen (Kostenkontrolle)
-  req.on('close', () => {
+  // Client hat Tab geschlossen / Anfrage abgebrochen → Claude-Stream stoppen
+  // (Kostenkontrolle). WICHTIG: auf der ANTWORT lauschen, nicht auf req —
+  // req emittiert 'close' schon, sobald der Body fertig gelesen ist (und das
+  // passiert seit dem Umzug des JSON-Parsers in die Routen-Kette NACH der
+  // Registrierung des Listeners → der Stream würde sofort abgebrochen).
+  res.on('close', () => {
     if (!res.writableEnded) stream.abort();
   });
 
@@ -203,6 +234,7 @@ app.post('/api/chat', requireAccessCode, apiLimiter, (req, res) => {
 
   stream.on('message', (message) => {
     const u = message.usage;
+    recordUsage(u.input_tokens, u.output_tokens);
     console.log(
       `[chat] ${character} · stop=${message.stop_reason} · in=${u.input_tokens} out=${u.output_tokens} cacheRead=${u.cache_read_input_tokens ?? 0} cacheWrite=${u.cache_creation_input_tokens ?? 0}`,
     );
@@ -237,7 +269,7 @@ const ttsLimiter = rateLimit({
 
 const MAX_TTS_CHARS = 2000;
 
-app.post('/api/tts', requireAccessCode, ttsLimiter, async (req, res) => {
+app.post('/api/tts', ttsLimiter, requireAccessCode, jsonSmall, async (req, res) => {
   if (!ttsConfigured()) {
     // Client fällt dann auf die Browser-Stimmen zurück
     res.status(503).json({ error: 'Server-Stimmen sind nicht eingerichtet.' });
@@ -253,7 +285,6 @@ app.post('/api/tts', requireAccessCode, ttsLimiter, async (req, res) => {
   try {
     const audio = await synthesize(text, lang, gender);
     res.set('Content-Type', 'audio/mpeg');
-    res.set('Cache-Control', 'private, max-age=86400');
     res.send(audio);
   } catch (err) {
     console.error('[tts] Fehler:', err instanceof Error ? err.message : err);
@@ -296,7 +327,7 @@ const DICTIONARY_SCHEMA = {
   },
 } as const;
 
-app.post('/api/dictionary', requireAccessCode, apiLimiter, async (req, res) => {
+app.post('/api/dictionary', apiLimiter, requireAccessCode, requireDailyBudget, jsonSmall, async (req, res) => {
   const word = typeof req.body?.word === 'string' ? req.body.word.trim() : '';
   const primaryLang = parsePrimaryLang(req.body?.primaryLang);
   if (!word || word.length > 60) {
@@ -378,7 +409,7 @@ function validateExercise(raw: unknown): Exercise | null {
   return null;
 }
 
-app.post('/api/exercise', requireAccessCode, apiLimiter, async (req, res) => {
+app.post('/api/exercise', apiLimiter, requireAccessCode, requireDailyBudget, jsonSmall, async (req, res) => {
   const type = req.body?.type === 'blank' ? 'blank' : 'mc';
   const topic = typeof req.body?.topic === 'string' ? req.body.topic.trim().slice(0, 200) : '';
   const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim().slice(0, 200) : '';

@@ -25,6 +25,15 @@ export function useMicLevels() {
   const rafRef = useRef<number>(0)
   const startingRef = useRef(false)
   const genRef = useRef(0)
+  const errTimerRef = useRef(0)
+
+  // Fehler nur vorübergehend anzeigen — ein dauerhaft stehender micError würde
+  // in der VoiceBar den Ton-Schalter für den Rest der Sitzung verdrängen
+  function setTransientError(msg: string) {
+    setError(msg)
+    clearTimeout(errTimerRef.current)
+    errTimerRef.current = window.setTimeout(() => setError(null), 6000)
+  }
 
   async function start() {
     if (active || startingRef.current) return
@@ -86,7 +95,7 @@ export function useMicLevels() {
       stream?.getTracks().forEach((t) => t.stop())
       void ctx?.close().catch(() => {})
       if (gen === genRef.current) {
-        setError('Mikrofon nicht verfügbar — bitte Berechtigung im Browser erlauben.')
+        setTransientError('Mikrofon nicht verfügbar — bitte Berechtigung im Browser erlauben.')
       }
     } finally {
       startingRef.current = false
@@ -95,6 +104,7 @@ export function useMicLevels() {
 
   function stop() {
     genRef.current++ // beendet laufende Loops und entwertet schwebende Starts
+    clearTimeout(errTimerRef.current)
     cancelAnimationFrame(rafRef.current)
     streamRef.current?.getTracks().forEach((t) => t.stop())
     void ctxRef.current?.close().catch(() => {})

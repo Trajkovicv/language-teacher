@@ -13,7 +13,8 @@ const SPEECH_LANG: Record<Lang, string> = { de: 'de-DE', en: 'en-US', sr: 'sr-RS
 /** Mundformen für die Gratis-Lippensynchronisation (kein externes Konto nötig). */
 export type MouthShape = 'rest' | 'closed' | 'small' | 'open' | 'round'
 export type VoiceGender = 'female' | 'male'
-export type SpeakOpts = { force?: boolean; gender?: VoiceGender }
+/** explicit=true: der Nutzer hat GEZIELT aufs Anhören getippt — spricht auch bei „Ton aus". */
+export type SpeakOpts = { force?: boolean; gender?: VoiceGender; explicit?: boolean }
 
 /** Vokale eines Wortes → Sequenz von Mundformen (max. 5 pro Wort). */
 function visemesForWord(word: string): MouthShape[] {
@@ -81,9 +82,14 @@ export function useSpeech(serverTts: boolean) {
     }
   })
 
-  function clearTimers() {
+  /** Nur die Mundform-Timer — der resume-Heartbeat lebt weiter (Chrome-15-s-Bug). */
+  function clearMouthTimers() {
     timersRef.current.forEach((t) => clearTimeout(t))
     timersRef.current = []
+  }
+
+  function clearTimers() {
+    clearMouthTimers()
     if (heartbeatRef.current) {
       clearInterval(heartbeatRef.current)
       heartbeatRef.current = 0
@@ -167,10 +173,13 @@ export function useSpeech(serverTts: boolean) {
         logDiag('Audio-Element entsperrt')
       }).catch((e: unknown) => {
         a.muted = false
+        // Versuch NICHT verbrennen: die nächste echte Nutzer-Geste probiert es
+        // erneut (z. B. wenn diese Geste keine User-Activation hatte)
+        primedRef.current = false
         logDiag(`Audio-Unlock abgelehnt: ${e instanceof Error ? e.name : e}`)
       })
     } catch {
-      // egal
+      primedRef.current = false
     }
     if (supported) {
       try {
@@ -215,6 +224,14 @@ export function useSpeech(serverTts: boolean) {
         startMouthRhythm(gen)
       }
       audio.onended = () => finish(gen)
+      // OS-Pause (Sperrbildschirm, Anruf, App-Wechsel auf iOS): weder ended noch
+      // error feuern — ohne diesen Handler bliebe speaking/Mundrhythmus hängen
+      audio.onpause = () => {
+        if (!audio.ended && gen === genRef.current) {
+          logDiag('Audio pausiert (System) — Wiedergabe beendet')
+          finish(gen)
+        }
+      }
       audio.onerror = () => {
         logDiag('Audio-Element-Fehler')
         finish(gen)
@@ -260,16 +277,19 @@ export function useSpeech(serverTts: boolean) {
     u.onboundary = (e) => {
       if (gen !== genRef.current || typeof e.charIndex !== 'number') return
       boundarySeenRef.current = true
-      clearTimers()
+      clearMouthTimers() // Heartbeat NICHT löschen — der schützt lange Antworten
       const word = text.slice(e.charIndex).match(/^\S+/)?.[0] ?? ''
       scheduleShapes(visemesForWord(word), true)
     }
+    // WICHTIG: nur die EIGENE Referenz löschen. Das 'interrupted'-Event einer
+    // gecancelten Utterance kommt asynchron — NACHDEM die nächste Utterance
+    // currentUtterance schon übernommen hat; sonst verliert sie den GC-Schutz.
     u.onend = () => {
-      currentUtterance = null
+      if (currentUtterance === u) currentUtterance = null
       finish(gen)
     }
     u.onerror = (e) => {
-      currentUtterance = null
+      if (currentUtterance === u) currentUtterance = null
       if ((e as SpeechSynthesisErrorEvent).error !== 'interrupted') {
         logDiag(`Browser-Stimme Fehler: ${(e as SpeechSynthesisErrorEvent).error ?? '?'}`)
       }
@@ -299,9 +319,9 @@ export function useSpeech(serverTts: boolean) {
     boundarySeenRef.current = false
   }
 
-  /** Kern: spricht Text; ignoreEnabled nur für den hörbaren Selbsttest. */
-  function speakInternal(text: string, lang: Lang, opts: SpeakOpts & { ignoreEnabled?: boolean }): boolean {
-    if (!enabled && !opts.ignoreEnabled) return false
+  /** Kern: spricht Text; explicit übergeht den Ton-Schalter (gezielter Tap/Selbsttest). */
+  function speakInternal(text: string, lang: Lang, opts: SpeakOpts): boolean {
+    if (!enabled && !opts.explicit) return false
     const trimmed = text.trim().slice(0, MAX_SPEAK_CHARS)
     if (!trimmed) return false
     stopPlayback()
@@ -344,7 +364,7 @@ export function useSpeech(serverTts: boolean) {
         // UND zeigt sofort, ob die Umgebung (Lautstärke/Stummschalter/Kopfhörer)
         // passt — über denselben Weg wie echte Antworten (Server oder Browser).
         prime()
-        speakInternal('Ton ist an! Zvuk je uključen!', 'de', { force: true, ignoreEnabled: true })
+        speakInternal('Ton ist an! Zvuk je uključen!', 'de', { force: true, explicit: true })
       }
       return next
     })

@@ -65,6 +65,15 @@ Die App besteht aus zwei Teilen, die getrennt gehostet werden:
 die App fragt den Code einmalig ab und merkt ihn sich. Zusätzlich Spend-Limit
 in der Claude Console setzen.
 
+## Echte Stimmen (optional, gratis)
+
+Standardmäßig liest die App mit Browser-Stimmen vor. Mit einem kostenlosen
+Azure-Konto gibt es echte neuronale Stimmen für Deutsch, Englisch und
+**Serbisch** (Latinica + Ćirilica), zuverlässig auch mit Bluetooth-Kopfhörern
+und in der installierten App: Schritt-für-Schritt-Anleitung in
+[ANLEITUNG-AZURE.md](ANLEITUNG-AZURE.md) (Azure AI Speech F0, 500k Zeichen/Monat
+dauerhaft gratis; `AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION` in Render setzen).
+
 ## Hinweis zu den Charakterbildern
 
 `client/public/characters/mila.png` ist ein **privates Foto** und bleibt
@@ -81,5 +90,9 @@ Platzhalter, bis eine generische Figur eingesetzt wird
 - **M3** UI nach Mockup (Sidebar, Themes, Voice-Bar mit Mikrofonpegel, Chat-Komponenten)
 - **M4** Wörterbuch-Tab (`/api/dictionary`)
 - **M5** Übungen-Tab (`/api/exercise` + eigene Übung per Prompt)
+- **M6** PWA + Veröffentlichung (GitHub Pages + Render, `ACCESS_CODE`)
+- **M7/M7b** Sprech-Schleife: Vorlesen, Diktat, animierte Avatare mit Lippensynchronisation
+- **M8** Foto-/PDF-Anhänge im Chat (Claude Vision), Tipp-zum-Anhören,
+  `/api/tts` (Azure, optional) + Mobil-Audio-Härtung und Audio-Diagnose
 
-Danach (nach Freigabe): Phase 2 = SQLite-Memory, Phase 3 = TTS (Azure F0) + Spracheingabe.
+Danach (nach Freigabe): Phase 2 = SQLite-Lern-Gedächtnis.

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { streamSSE, SSERequestError } from '../lib/sse'
 import { apiUrl, accessHeaders, setAccessCode } from '../lib/api'
-import { useRecognition } from '../lib/speech'
+import { useRecognition, type SpeakOpts } from '../lib/speech'
 import { Icon } from './Icons'
 import Bilingual from './Bilingual'
 import VoiceBar from './VoiceBar'
@@ -15,13 +15,16 @@ export type UiAttachment = { kind: 'image' | 'pdf'; name: string; preview?: stri
 export type UiMessage = { role: 'user' | 'assistant'; content: string; attachment?: UiAttachment }
 
 /** Anhang, der gerade zum Absenden bereitliegt (inkl. Base64-Daten). */
-type PendingAttachment = {
+export type PendingAttachment = {
   kind: 'image' | 'pdf'
   name: string
   media: string
   data: string
   preview?: string
 }
+
+/** Entwurf (Text + Anhang) — lebt in App pro Charakter, überlebt den key-Remount. */
+export type Draft = { input: string; attachment: PendingAttachment | null }
 
 /** Wire-Format an den Server (siehe server/index.ts parseMessages). */
 type ApiBlock =
@@ -106,7 +109,7 @@ type VoiceProps = {
   supported: boolean
   speaking: boolean
   toggle: () => void
-  speak: (text: string, lang: Lang, opts?: { force?: boolean }) => boolean
+  speak: (text: string, lang: Lang, opts?: SpeakOpts) => boolean
   cancel: () => void
   prime: () => void
 }
@@ -117,6 +120,8 @@ type Props = {
   characterName: string
   messages: UiMessage[]
   setMessages: Dispatch<SetStateAction<UiMessage[]>>
+  draft: Draft
+  onDraftChange: (update: (d: Draft) => Draft) => void
   onBusyChange: (busy: boolean) => void
   warning: string | null
   mic: MicProps
@@ -125,7 +130,12 @@ type Props = {
 
 // Muss zu den Server-Limits passen (server/index.ts: MAX_MESSAGES/MAX_MESSAGE_CHARS)
 const MAX_INPUT_CHARS = 4000
-const HISTORY_WINDOW = 50
+// Verlaufsfenster in STABILEN 20er-Blöcken beschneiden statt gleitend:
+// ein gleitendes Fenster würde den Byte-Präfix jede Runde verschieben und
+// den Prompt-Cache dauerhaft entwerten (Präfix-Match!). So bleibt der
+// Anfang des Fensters über je 20 Nachrichten identisch (Fenster: 41–60).
+const HISTORY_MAX = 60
+const HISTORY_CHUNK = 20
 
 const QUICK_REPLIES = ['Doviđenja! 👋', 'Ponovi, molim te', 'Kako se kaže „Tschüss"?'] as const
 
@@ -137,7 +147,10 @@ const QUICK_REPLIES = ['Doviđenja! 👋', 'Ponovi, molim te', 'Kako se kaže �
  * im Turn des Anhangs selbst mit (Budget!).
  */
 function windowForApi(history: UiMessage[], pending?: PendingAttachment | null): ApiMessage[] {
-  let win = history.slice(-HISTORY_WINDOW)
+  const overflow = history.length - HISTORY_MAX
+  const start = overflow > 0 ? Math.ceil(overflow / HISTORY_CHUNK) * HISTORY_CHUNK : 0
+  let win = history.slice(start)
+  // API-Anforderung: die erste Nachricht muss role 'user' haben
   while (win.length > 0 && win[0].role !== 'user') win = win.slice(1)
   const messages: ApiMessage[] = win.map((m) => {
     let text = m.content
@@ -210,21 +223,33 @@ export default function ChatPanel({
   characterName,
   messages,
   setMessages,
+  draft,
+  onDraftChange,
   onBusyChange,
   warning,
   mic,
   voice,
 }: Props) {
-  const [input, setInput] = useState('')
+  // Entwurf lebt in App (pro Charakter) — hier nur bequeme Zugriffe darauf
+  const input = draft.input
+  const attachment = draft.attachment
+  const setInput = (v: string | ((cur: string) => string)) =>
+    onDraftChange((d) => ({ ...d, input: typeof v === 'function' ? v(d.input) : v }))
+  const setAttachment = (
+    v: PendingAttachment | null | ((cur: PendingAttachment | null) => PendingAttachment | null),
+  ) => onDraftChange((d) => ({ ...d, attachment: typeof v === 'function' ? v(d.attachment) : v }))
+
   const [busy, setBusy] = useState(false)
   // null = kein Stream aktiv; '' = Anfrage läuft, noch kein Token (Tipp-Indikator)
   const [pendingText, setPendingText] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [attachment, setAttachment] = useState<PendingAttachment | null>(null)
   const [attaching, setAttaching] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  // iOS-PWA: webkitSpeechRecognition existiert, scheitert aber mit
+  // service-not-allowed — dann dauerhaft auf den Mikrofontest ausweichen
+  const recFailedRef = useRef(false)
 
   const pauseMessage = `${characterName} macht kurz Pause… Versuch es gleich noch einmal.`
 
@@ -239,10 +264,12 @@ export default function ChatPanel({
   }, [busy, onBusyChange])
 
   // Beim Unmount (z. B. Charakterwechsel via key) laufenden Stream abbrechen —
-  // der Server stoppt dann auch den Claude-Stream (Kostenkontrolle)
+  // der Server stoppt dann auch den Claude-Stream (Kostenkontrolle). Ebenso die
+  // Sprachausgabe: sonst spräche die alte Stimme über dem neuen Avatar weiter.
   useEffect(
     () => () => {
       abortRef.current?.abort()
+      voice.cancel()
       onBusyChange(false)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -254,20 +281,22 @@ export default function ChatPanel({
     (text) => void send(text),
     (code) => {
       if (code === 'no-speech') setNotice('Nichts verstanden — tippe aufs Mikro und sprich direkt los.')
-      else if (code === 'not-allowed' || code === 'service-not-allowed')
+      else if (code === 'service-not-allowed') {
+        // Typisch installierte iOS-App: Diktat-Dienst nicht verfügbar, obwohl die
+        // API existiert. Ab jetzt macht der Mikro-Knopf den Pegel-Mikrofontest.
+        recFailedRef.current = true
+        setNotice('Diktat ist hier leider nicht verfügbar (installierte App). Der Mikro-Knopf zeigt jetzt den Mikrofontest — zum Diktieren die App im Safari-Browser öffnen.')
+      } else if (code === 'not-allowed')
         setNotice('Mikrofon nicht erlaubt — bitte die Berechtigung im Browser/System freigeben.')
       else setNotice('Spracheingabe hat nicht geklappt — bitte nochmal versuchen.')
     },
   )
 
-  /** Tipp-zum-Anhören: expliziter Wunsch — bei ausgeschaltetem Ton kurz erklären. */
-  function speakTap(text: string, speakLang: Lang, force = false) {
+  /** Tipp-zum-Anhören: explicit=true spricht auch bei „Ton aus" (gezielter Wunsch). */
+  function speakTap(text: string, speakLang: Lang) {
     voice.prime()
-    if (!voice.enabled) {
-      setNotice('Der Ton ist aus — tippe unten in der Leiste auf „🔇 Ton aus", um ihn einzuschalten.')
-      return
-    }
-    voice.speak(text, speakLang, { force })
+    rec.stop() // nie ins offene Erkennungs-Mikrofon sprechen
+    voice.speak(text, speakLang, { force: true, explicit: true })
   }
 
   // WICHTIG: Erkennung und Pegel-Mikrofon NIE gleichzeitig — auf vielen Handys
@@ -281,7 +310,7 @@ export default function ChatPanel({
       return
     }
     voice.cancel()
-    if (rec.supported) {
+    if (rec.supported && !recFailedRef.current) {
       rec.start(lang)
     } else {
       mic.onToggle()
@@ -298,6 +327,10 @@ export default function ChatPanel({
     try {
       if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
         setAttachment(await processPdf(file))
+        if (file.size > 1_500_000) {
+          // Kosten-Transparenz: PDF-Seiten kosten spürbar Input-Tokens (Budget-Regel)
+          setNotice('Hinweis: Große PDFs mit vielen Seiten verbrauchen spürbar Budget — im Zweifel nur die relevanten Seiten schicken.')
+        }
       } else if (file.type.startsWith('image/') || file.type === '') {
         setAttachment(await processImage(file))
       } else {
@@ -310,14 +343,23 @@ export default function ChatPanel({
     }
   }
 
-  async function send(textOverride?: string) {
+  async function send(textOverride?: string, opts?: { withAttachment?: boolean }) {
     const text = (textOverride ?? input).trim()
-    const att = attachment
-    if ((!text && !att) || busy) return
+    // Schnellantworten senden den liegenden Anhang NICHT mit (withAttachment:false) —
+    // Diktat und Eingabezeile schon, die sind bewusst verfasste Nachrichten.
+    const att = opts?.withAttachment === false ? null : attachment
+    if (busy) {
+      // Läuft schon ein Austausch (z. B. Diktat währenddessen): Text nicht
+      // verwerfen, sondern ins Eingabefeld legen — nichts geht verloren.
+      if (text) setInput((cur) => (cur.trim() ? cur : text))
+      return
+    }
+    if (!text && !att) return
     voice.prime() // Mobile: Audio innerhalb der Nutzer-Geste entsperren
     voice.cancel() // laufende Sprachausgabe stoppen, neue Runde beginnt
+    rec.stop() // Erkennung nie parallel zur Antwort laufen lassen
     setInput('')
-    setAttachment(null)
+    if (att) setAttachment(null)
     setNotice(null)
     setBusy(true)
     try {
@@ -377,17 +419,18 @@ export default function ChatPanel({
             setAccessCode(code.trim())
             return runExchange(baseHistory, text, att)
           }
-          setInput(text)
-          setAttachment(att ?? null)
+          // Nur wiederherstellen, wenn der Nutzer nicht längst weitergetippt hat
+          setInput((cur) => (cur.trim() ? cur : text))
+          setAttachment((cur) => cur ?? att ?? null)
           setNotice('Ohne gültigen Zugangscode kann keine Nachricht gesendet werden.')
           return
         }
         if (acc === '') {
           // Anfrage kam gar nicht durch (400/429/Netz): Nachricht zurückrollen,
-          // Eingabe + Anhang wiederherstellen, damit nichts verloren geht
+          // Eingabe + Anhang wiederherstellen — ohne einen neuen Entwurf zu überschreiben
           setMessages(baseHistory)
-          setInput(text)
-          setAttachment(att ?? null)
+          setInput((cur) => (cur.trim() ? cur : text))
+          setAttachment((cur) => cur ?? att ?? null)
         }
         // Nur Server-Meldungen anzeigen; rohe Browser-Fehler ("Failed to fetch") → Pausen-Meldung
         setNotice(
@@ -397,9 +440,11 @@ export default function ChatPanel({
     } finally {
       if (acc) {
         setMessages((m) => [...m, { role: 'assistant', content: acc }])
-        // Antwort laut vorlesen (ohne PREVOD-Zeile); Serbisch bleibt still,
-        // solange der Browser keine Stimme hat (Phase 3: Azure TTS)
-        voice.speak(splitPrevod(acc).main.replace(/\*/g, ''), lang)
+        // Antwort laut vorlesen (ohne PREVOD-Zeile) — aber NICHT nach Abbruch
+        // (Stopp-Knopf/Charakterwechsel): der Nutzer erwartet dann Stille.
+        if (!controller.signal.aborted) {
+          voice.speak(splitPrevod(acc).main.replace(/\*/g, ''), lang)
+        }
       }
       if (truncated) setNotice('Die Antwort wurde wegen des Token-Limits gekürzt.')
     }
@@ -407,6 +452,7 @@ export default function ChatPanel({
 
   function stop() {
     abortRef.current?.abort()
+    voice.cancel() // „Stopp" heißt Stille — auch eine laufende Vorlesung beenden
   }
 
   const streaming = splitPrevod(hidePartialPrevodMarker(pendingText ?? ''))
@@ -460,6 +506,7 @@ export default function ChatPanel({
                   type="button"
                   className="msg-spk"
                   title="Nochmal anhören · Poslušaj ponovo"
+                  aria-label="Nachricht vorlesen"
                   onClick={() => speakTap(main.replace(/\*/g, ''), lang)}
                 >
                   <Icon id="i-speaker" />
@@ -472,7 +519,14 @@ export default function ChatPanel({
                   role="button"
                   tabIndex={0}
                   title="Antippen zum Anhören · Dodirni i poslušaj"
-                  onClick={() => speakTap(prevod.replace(/\*/g, ''), 'sr', true)}
+                  aria-label="Serbische Übersetzung anhören"
+                  onClick={() => speakTap(prevod.replace(/\*/g, ''), 'sr')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      speakTap(prevod.replace(/\*/g, ''), 'sr')
+                    }
+                  }}
                 >
                   🇷🇸 {renderRich(prevod)}
                 </span>
@@ -511,7 +565,7 @@ export default function ChatPanel({
             <div className="q-lbl">Schnellantworten · Brzi odgovori</div>
             <div className="q-row">
               {QUICK_REPLIES.map((q) => (
-                <button key={q} type="button" className="qr" onClick={() => void send(q)}>
+                <button key={q} type="button" className="qr" onClick={() => void send(q, { withAttachment: false })}>
                   {q}
                 </button>
               ))}

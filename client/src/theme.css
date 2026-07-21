@@ -326,3 +326,12 @@ table.decl td:first-child{font-weight:700}table.decl td:last-child{color:var(--i
   .inputbar .in{padding:12px 12px}
   .inputbar .send{padding-left:12px;padding-right:12px;flex-shrink:0}
 }
+/* iOS: Eingabefelder unter 16px lösen beim Fokus einen Auto-Zoom aus, der das
+   100dvh-Layout abschneidet — auf Touch-Breiten deshalb 16px */
+@media (max-width:520px){
+  .inputbar .in{font-size:16px}
+  .searchbar .field input{font-size:16px}
+  /* Installierte App (PWA) auf iPhones mit Home-Indicator: Eingabezeile aus
+     der Wisch-Zone heraushalten */
+  .inputbar{padding-bottom:calc(14px + env(safe-area-inset-bottom, 0px))}
+}

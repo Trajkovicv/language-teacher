@@ -48,16 +48,41 @@ function escapeXml(s: string): string {
 }
 
 // Wiederholtes Anhören (Tipp-zum-Anhören!) soll das Gratis-Kontingent nicht
-// mehrfach kosten: kleiner In-Memory-Cache, älteste Einträge fliegen zuerst.
+// mehrfach kosten: kleiner In-Memory-LRU-Cache. Neben der Eintragszahl ist
+// auch die Byte-Summe gedeckelt — 2000-Zeichen-Texte ergeben ~1 MB MP3, und
+// der Render-Free-Container hat nur 512 MB RAM.
 const cache = new Map<string, Buffer>();
 const CACHE_MAX_ENTRIES = 150;
+const CACHE_MAX_BYTES = 24 * 1024 * 1024;
+let cacheBytes = 0;
+
+function cacheGet(key: string): Buffer | undefined {
+  const hit = cache.get(key);
+  if (hit) {
+    // LRU: Treffer nach hinten schieben, damit häufig Gehörtes drinbleibt
+    cache.delete(key);
+    cache.set(key, hit);
+  }
+  return hit;
+}
+
+function cacheSet(key: string, buf: Buffer): void {
+  cache.set(key, buf);
+  cacheBytes += buf.length;
+  while (cache.size > CACHE_MAX_ENTRIES || cacheBytes > CACHE_MAX_BYTES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cacheBytes -= cache.get(oldest)?.length ?? 0;
+    cache.delete(oldest);
+  }
+}
 
 export async function synthesize(text: string, lang: TtsLang, gender: TtsGender): Promise<Buffer> {
   if (!ttsConfigured()) throw new Error('TTS nicht konfiguriert');
 
   const voice = pickVoice(text, lang, gender);
   const key = `${voice}|${text}`;
-  const hit = cache.get(key);
+  const hit = cacheGet(key);
   if (hit) return hit;
 
   const locale = voice.split('-').slice(0, -1).join('-');
@@ -85,12 +110,7 @@ export async function synthesize(text: string, lang: TtsLang, gender: TtsGender)
     }
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length === 0) throw new Error('Azure TTS: leere Audio-Antwort');
-
-    if (cache.size >= CACHE_MAX_ENTRIES) {
-      const oldest = cache.keys().next().value;
-      if (oldest !== undefined) cache.delete(oldest);
-    }
-    cache.set(key, buf);
+    cacheSet(key, buf);
     return buf;
   } finally {
     clearTimeout(timeout);
