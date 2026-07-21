@@ -104,12 +104,12 @@ Health: http://localhost:3001/api/health
 
 ## Nächste Schritte (in Reihenfolge)
 
-1. **NUTZER-SCHRITT — Handy-Audio bestätigen:** Am Handy die App neu öffnen
-   (ggf. 2× schließen/öffnen, damit die PWA den neuen Build zieht), auf die
-   Versionszeile tippen (Audio-Diagnose) und den 🔊-Selbsttest machen.
-   Bleibt es mit AirPods Max stumm → **Azure einrichten** (`ANLEITUNG-AZURE.md`,
-   0 CHF): löst Bluetooth-Routing + iOS-PWA grundsätzlich und bringt echte
-   serbische Stimmen. Code-Seite ist fertig — es fehlen nur Key + Region in Render.
+1. **✅ ERLEDIGT (21.07. abends): Azure TTS ist LIVE.** Nutzer hat die
+   Speech-Ressource erstellt (F0, Region **switzerlandnorth**, Ressourcengruppe
+   `language_teacher`) und Key+Region in Render eingetragen — `/api/health`
+   meldet `tts:true`. Die App spricht jetzt mit echten neuronalen Stimmen
+   (de/en/sr, Latinica+Ćirilica, Mila/Ana weiblich, Luka männlich) über das
+   `<audio>`-Element (Bluetooth/PWA-fest). Browser-TTS bleibt Fallback.
 2. **Optional — Simli** („Wow-Upgrade", Nutzer-Entscheid nötig): `<video>` ersetzt
    die Bühne; Kunstgesichter für Luka/Ana; Mila bleibt illustriert (Regel 1).
    Gratis-Lippensync (M7b) ist gebaut und Standard.
