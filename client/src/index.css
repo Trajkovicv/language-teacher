@@ -1,0 +1,206 @@
+/* M2: schlichte, funktionale Basis. Ab M3 kommen die Theme-Variablen aus docs/mockup.html (theme.css). */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #fbf5f4;
+  color: #241f2e;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.shell {
+  height: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.topbar h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.t2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8477a;
+  opacity: 0.75;
+}
+
+.switcher {
+  display: flex;
+  gap: 8px;
+}
+
+.char {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border: 1.5px solid rgba(40, 25, 50, 0.12);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.15s;
+}
+
+.char img {
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.char.active {
+  border-color: #e8477a;
+  box-shadow: 0 4px 12px rgba(255, 110, 151, 0.35);
+}
+
+.chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px;
+}
+
+.chat-hint {
+  color: #8a8398;
+  font-size: 14px;
+}
+
+.bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid rgba(40, 25, 50, 0.08);
+  box-shadow: 0 1px 2px rgba(40, 25, 50, 0.05);
+  font-size: 14.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, #e7f6ef, #ddf0e6);
+  border-bottom-right-radius: 6px;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  border-bottom-left-radius: 6px;
+}
+
+.bubble.notice {
+  align-self: center;
+  background: #fcf4de;
+  border-color: #f0dea6;
+  color: #8a6d0b;
+  font-size: 13px;
+}
+
+.who {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: #8a8398;
+  margin-bottom: 4px;
+}
+
+.prevod {
+  margin-top: 6px;
+  font-style: italic;
+  font-size: 12.5px;
+  color: #8a8398;
+}
+
+.typing {
+  color: #8a8398;
+  font-style: italic;
+}
+
+.cursor {
+  animation: blink 1s steps(2) infinite;
+  color: #e8477a;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 12px 14px;
+  border: 1.5px solid rgba(40, 25, 50, 0.12);
+  border-radius: 15px;
+  font-size: 14.5px;
+  background: #fff;
+}
+
+.chat-input input:focus {
+  outline: none;
+  border-color: #e8477a;
+}
+
+.chat-input button {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #ff6e97, #ffa36b);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(255, 110, 151, 0.4);
+}
+
+.chat-input button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  box-shadow: none;
+}
+
+.statusline {
+  font-size: 12px;
+  color: #8a8398;
+}

@@ -1,0 +1,23 @@
+# Render-Blueprint: gehosteter API-Server (Gratis-Tarif, keine eigene Domain nötig).
+# In Render: "New +" → "Blueprint" → dieses Repo wählen → Umgebungsvariablen ausfüllen.
+# Hinweis Gratis-Tarif: Der Dienst schläft nach ~15 min Inaktivität ein; der erste
+# Aufruf danach braucht ~1 Minute (Kaltstart). Für die Validierungsphase ok.
+services:
+  - type: web
+    name: language-teacher-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLAUDE_MODEL
+        value: claude-sonnet-5
+      - key: ANTHROPIC_API_KEY
+        sync: false # in der Render-Oberfläche eintragen (geheim)
+      - key: ACCESS_CODE
+        sync: false # in der Render-Oberfläche eintragen (geheim) — schützt dein Budget!
+      - key: CLIENT_ORIGINS
+        sync: false # z. B. https://DEIN-GITHUB-NAME.github.io

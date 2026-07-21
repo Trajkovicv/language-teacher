@@ -1,0 +1,36 @@
+# Abhängigkeiten
+node_modules/
+
+# Builds
+dist/
+build/
+client/dev-dist/
+
+# Umgebungsvariablen — enthält den API-Key, niemals committen
+.env
+.env.local
+*.local
+
+# PRIVAT: mila.png ist ein privates Foto — bleibt lokal, wird nie veröffentlicht
+# (die App zeigt online automatisch einen Platzhalter; siehe docs/charakter-portraits-anleitung.md)
+client/public/characters/mila.png
+
+# Planungsunterlagen bleiben lokal (privates Foto in docs/assets + Budget-/Businessnotizen).
+# Bei Bedarf gezielt einzelne Dateien wieder aufnehmen (git add -f docs/...).
+docs/
+CLAUDE_CODE_START_PROMPT.md
+PROJEKT_PROMPT_Language_Teacher_APP.md
+Screenshot*.png
+
+# Laufzeit-Artefakte des Dev-Setups
+.claude/scheduled_tasks.lock
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

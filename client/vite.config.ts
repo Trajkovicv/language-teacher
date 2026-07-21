@@ -1,0 +1,38 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [
+    react(),
+    // Macht die App installierbar (App-Icon auf Handy/Desktop, Standalone-Fenster)
+    VitePWA({
+      registerType: 'autoUpdate',
+      manifest: {
+        name: 'Language Teacher · Učitelj jezika',
+        short_name: 'Language Teacher',
+        description: 'KI-Sprachlehrer für Deutsch, Englisch und Serbisch',
+        lang: 'de',
+        display: 'standalone',
+        theme_color: '#FBF5F4',
+        background_color: '#FBF5F4',
+        icons: [
+          { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+      workbox: {
+        // API-Aufrufe (inkl. SSE-Streaming) nie vom Service Worker abfangen
+        navigateFallbackDenylist: [/^\/api/],
+      },
+    }),
+  ],
+  server: {
+    proxy: {
+      // Alle /api-Aufrufe gehen an den Express-Server (SSE-kompatibel)
+      '/api': 'http://localhost:3001',
+    },
+  },
+})
