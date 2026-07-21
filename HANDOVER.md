@@ -16,6 +16,7 @@
 | M7 | Sprech-Schleife: Browser-TTS (Antworten werden vorgelesen, de/en), Diktat per Mikro, Fotos entfernt → SVG-Avatare | dd4b177 |
 | M7b | Gratis-Lippensync (Visem-Mapping aus TTS-Wort-Grenz-Events) + Mobil-/Audio-Fixes | 4a2868f… |
 | M8 | Foto-/PDF-Anhänge (Claude Vision), Tipp-zum-Anhören (PREVOD-Zeile + 🔊 pro Nachricht), `/api/tts` (Azure F0, optional) über `<audio>`-Element, Browser-TTS-Härtung (GC-Schutz, resume-Heartbeat, visibilitychange), Audio-Diagnose per Tap auf die Versionszeile, PWA skipWaiting | ae5cdc2 |
+| Phase 2 | Lern-Gedächtnis über Sitzungen: kompaktes Profil (Niveau, Schrift, Themen, Fehlerprofil) pro Charakter, fortgeschrieben via `claude-haiku-4-5` (`/api/memory`, alle 6 Antworten), injiziert als eigener System-Block. **Bewusste Abweichung: persistiert im localStorage statt Server-SQLite** — Render-Free-Dateisystem ist flüchtig (nach jedem Kaltstart leer); pro Gerät getrennt, für die Validierungsphase richtig | (Session 2) |
 
 Jede Stufe durchlief eine adversariale Multi-Agent-Review. Session 2 hat die in
 Session 1 übersprungene M7-Review zusammen mit M8 nachgeholt (125 Agenten,
@@ -25,6 +26,12 @@ Teilantworten nach Stopp/Charakterwechsel, Zugangscode brute-force-bar (Limiter
 lief NACH der Code-Prüfung), gleitendes Verlaufsfenster entwertete den
 Prompt-Cache, Wörterbuch-JSON kollidierte mit max_tokens 1024, iOS-Fokus-Zoom,
 Audio-Unlock hing an pointerdown (zählt auf Touch nicht als Geste).
+Phase 2 wurde ebenfalls adversarial reviewt (Sitzungsenden gingen verloren →
+persistierter Nachrichten-Puffer; Lösch-Knopf fürs Gedächtnis; strengere
+Personendaten-Regel im Summarizer-Prompt; Budget zählt jetzt Cache-Tokens).
+Hinweis: Beim Phase-2-Review-Lauf wurde das Monats-Ausgabenlimit des
+Claude-Code-Abos erreicht — weitere Multi-Agent-Workflows scheitern, bis das
+Limit zurückgesetzt/erhöht wird (claude.ai/settings/usage).
 
 ## Start & Test
 
@@ -49,6 +56,12 @@ Health: http://localhost:3001/api/health
 - **Anhänge & Budget:** Ein Anhang geht nur im EIGENEN Turn als echter Block an die
   API; im späteren Verlauf wird er zum Text-Marker `[Bild: name]` (ChatPanel
   `windowForApi`). Bilder client-seitig auf ≤1024 px JPEG verkleinert, PDF ≤ 4 MB.
+- **Lern-Gedächtnis (Phase 2):** Client hält pro Charakter `lt-memory-<id>` in
+  localStorage (`client/src/lib/memory.ts`); jede 6. Lehrer-Antwort schickt die
+  letzten 14 Nachrichten + altes Profil an `/api/memory` → `claude-haiku-4-5`
+  schreibt es fort (max 1500 Zeichen, structured output). `/api/chat` nimmt
+  `profile` entgegen und injiziert es als zweiten System-Block mit eigenem
+  cache_control (stabiler Lehrer-Prompt bleibt gecacht).
 - **Kostenbremsen:** Tages-Token-Limit im Server (env `DAILY_TOKEN_LIMIT`,
   Default 400k Tokens/Tag, in-memory) — KI-Routen antworten 429, wenn erreicht.
   Verlaufsfenster wird in stabilen 20er-Blöcken beschnitten (41–60 Nachrichten),
@@ -96,12 +109,13 @@ Health: http://localhost:3001/api/health
    Bleibt es mit AirPods Max stumm → **Azure einrichten** (`ANLEITUNG-AZURE.md`,
    0 CHF): löst Bluetooth-Routing + iOS-PWA grundsätzlich und bringt echte
    serbische Stimmen. Code-Seite ist fertig — es fehlen nur Key + Region in Render.
-2. **Phase 2 — SQLite-Lern-Gedächtnis:** Lernstand/Fehlerprofil pro Charakter
-   über Sitzungen, Zusammenfassungen via `claude-haiku-4-5` (docs/recherche.md §5).
-3. **Optional — Simli** („Wow-Upgrade", Nutzer-Entscheid nötig): `<video>` ersetzt
+2. **Optional — Simli** („Wow-Upgrade", Nutzer-Entscheid nötig): `<video>` ersetzt
    die Bühne; Kunstgesichter für Luka/Ana; Mila bleibt illustriert (Regel 1).
    Gratis-Lippensync (M7b) ist gebaut und Standard.
-4. **Optional — Whisper-STT** für zuverlässiges serbisches Diktat (Phase 3).
+3. **Optional — Whisper-STT** für zuverlässiges serbisches Diktat (Phase 3).
+4. **Optional — Lernstand-Anzeige:** Das Gedächtnis-Profil (localStorage
+   `lt-memory-<charakter>`) könnte als „Dein Lernstand"-Karte in der Sidebar
+   sichtbar gemacht werden.
 
 ## Wissensquellen
 

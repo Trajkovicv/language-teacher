@@ -94,5 +94,6 @@ Platzhalter, bis eine generische Figur eingesetzt wird
 - **M7/M7b** Sprech-Schleife: Vorlesen, Diktat, animierte Avatare mit Lippensynchronisation
 - **M8** Foto-/PDF-Anhänge im Chat (Claude Vision), Tipp-zum-Anhören,
   `/api/tts` (Azure, optional) + Mobil-Audio-Härtung und Audio-Diagnose
-
-Danach (nach Freigabe): Phase 2 = SQLite-Lern-Gedächtnis.
+- **Phase 2** Lern-Gedächtnis über Sitzungen: Niveau, Themen und Fehlerprofil
+  pro Lehrer:in, automatisch fortgeschrieben (claude-haiku) und im Gerät
+  gespeichert — die Lehrer knüpfen an frühere Sitzungen an

@@ -5,8 +5,9 @@ import rateLimit from 'express-rate-limit';
 import {
   CLAUDE_MODEL,
   createJson,
+  createMemoryProfile,
   overDailyBudget,
-  recordUsage,
+  recordUsageFrom,
   streamChat,
   type ChatMessage,
   type ContentBlock,
@@ -16,6 +17,7 @@ import {
   dictionarySystemPrompt,
   exerciseSystemPrompt,
   isCharacterName,
+  memorySystemPrompt,
   teacherSystemPrompt,
   type PrimaryLang,
 } from './prompts.js';
@@ -164,9 +166,20 @@ function parseMessages(body: unknown): ChatMessage[] | null {
 
 // Reihenfolge wichtig: Limiter zuerst (zählt auch falsche Zugangscodes —
 // Brute-Force-Schutz), dann Zugangscode, dann erst der teure Body-Parser.
+// Lern-Gedächtnis (Phase 2): kompaktes Profil kommt vom Client mit (dort
+// persistiert — das Render-Free-Dateisystem ist flüchtig) und wird als eigener
+// System-Block injiziert. Länge streng begrenzen: wandert in jeden Prompt.
+const MAX_PROFILE_CHARS = 1600;
+function parseProfile(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const p = value.trim();
+  return p ? p.slice(0, MAX_PROFILE_CHARS) : undefined;
+}
+
 app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig, (req, res) => {
   const messages = parseMessages(req.body);
   const character = isCharacterName(req.body?.character) ? req.body.character : 'Mila';
+  const profile = parseProfile(req.body?.profile);
   const pauseMessage = `${character} macht kurz Pause… Versuch es gleich noch einmal.`;
 
   if (!messages) {
@@ -201,7 +214,7 @@ app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig
 
   let stream: ReturnType<typeof streamChat>;
   try {
-    stream = streamChat({ system: teacherSystemPrompt(character, { serverTts: ttsConfigured() }), messages });
+    stream = streamChat({ system: teacherSystemPrompt(character, { serverTts: ttsConfigured() }), profile, messages });
   } catch (err) {
     // Unerwarteter synchroner Fehler beim Aufbau (Auth-Fehler kämen asynchron über 'error')
     console.error('[chat] Start fehlgeschlagen:', err instanceof Error ? err.message : err);
@@ -234,7 +247,7 @@ app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig
 
   stream.on('message', (message) => {
     const u = message.usage;
-    recordUsage(u.input_tokens, u.output_tokens);
+    recordUsageFrom(u);
     console.log(
       `[chat] ${character} · stop=${message.stop_reason} · in=${u.input_tokens} out=${u.output_tokens} cacheRead=${u.cache_read_input_tokens ?? 0} cacheWrite=${u.cache_creation_input_tokens ?? 0}`,
     );
@@ -253,6 +266,44 @@ app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig
   });
 
   stream.on('end', finish);
+});
+
+// ============ Lern-Gedächtnis (Phase 2) ============
+
+// Nimmt die jüngsten Nachrichten + bisheriges Profil, gibt das fortgeschriebene
+// Profil zurück (claude-haiku, Centbeträge). Persistiert wird CLIENT-seitig.
+const MEMORY_MAX_MESSAGES = 20;
+const MEMORY_MSG_CHARS = 2200;
+
+app.post('/api/memory', apiLimiter, requireAccessCode, requireDailyBudget, jsonSmall, async (req, res) => {
+  const character = isCharacterName(req.body?.character) ? req.body.character : 'Mila';
+  const oldProfile = parseProfile(req.body?.profile);
+  const raw = req.body?.messages;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MEMORY_MAX_MESSAGES) {
+    res.status(400).json({ error: 'Ungültige Anfrage: Nachrichtenliste fehlt oder ist zu lang.' });
+    return;
+  }
+  const lines: string[] = [];
+  for (const entry of raw) {
+    const { role, content } = (entry ?? {}) as Record<string, unknown>;
+    if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string' || !content.trim()) {
+      res.status(400).json({ error: 'Ungültige Anfrage: Nachricht hat ein falsches Format.' });
+      return;
+    }
+    lines.push(`${role === 'user' ? 'SCHÜLER' : character.toUpperCase()}: ${content.slice(0, MEMORY_MSG_CHARS)}`);
+  }
+  try {
+    const profil = await createMemoryProfile({
+      system: memorySystemPrompt(character),
+      user:
+        `BISHERIGES PROFIL:\n${oldProfile ?? '(noch keins — erste Sitzung)'}\n\n` +
+        `JÜNGSTE NACHRICHTEN:\n${lines.join('\n')}`,
+    });
+    res.json({ profile: profil });
+  } catch (err) {
+    console.error('[memory] Fehler:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'Zusammenfassung gerade nicht möglich.' });
+  }
 });
 
 // ============ Sprachausgabe (Azure TTS, Phase 3b vorgezogen) ============

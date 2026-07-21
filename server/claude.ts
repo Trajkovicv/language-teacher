@@ -32,6 +32,20 @@ export function overDailyBudget(): boolean {
   return day === usageDay && usageTokens >= DAILY_TOKEN_LIMIT;
 }
 
+/** Usage-Objekt der API einbuchen — Cache-Schreib-Tokens zählen voll,
+ *  Cache-Lese-Tokens mit ~0.1 (entspricht grob den Preisfaktoren). */
+export function recordUsageFrom(u: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}): void {
+  recordUsage(
+    u.input_tokens + (u.cache_creation_input_tokens ?? 0) + Math.ceil((u.cache_read_input_tokens ?? 0) / 10),
+    u.output_tokens,
+  );
+}
+
 // Anhänge (M8): der aktuelle User-Turn darf Bild-/PDF-Blöcke enthalten.
 // Ältere Verlaufs-Nachrichten werden client-seitig zu Text-Markern reduziert,
 // damit ein Anhang nur EINMAL Input-Tokens kostet (Budget-Regel).
@@ -83,7 +97,7 @@ export async function createJson(opts: {
     { timeout: 60_000, maxRetries: 1 },
   );
   const u = res.usage;
-  recordUsage(u.input_tokens, u.output_tokens);
+  recordUsageFrom(u);
   console.log(
     `[json] stop=${res.stop_reason} · in=${u.input_tokens} out=${u.output_tokens} cacheRead=${u.cache_read_input_tokens ?? 0} cacheWrite=${u.cache_creation_input_tokens ?? 0}`,
   );
@@ -94,7 +108,48 @@ export async function createJson(opts: {
   return JSON.parse(text);
 }
 
-export function streamChat(opts: { system: string; messages: ChatMessage[] }) {
+// ===== Phase 2: Lern-Gedächtnis-Zusammenfassung (claude-haiku-4-5) =====
+// Centbeträge pro Aufruf (docs/recherche.md §5). Haiku 4.5: thinking einfach
+// weglassen (läuft ohne), structured outputs werden unterstützt.
+export const MEMORY_MODEL = process.env.MEMORY_MODEL ?? 'claude-haiku-4-5';
+
+const MEMORY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['profil'],
+  properties: { profil: { type: 'string' } },
+} as const;
+
+export async function createMemoryProfile(opts: {
+  system: string;
+  user: string;
+}): Promise<string> {
+  const res = await getClient().messages.create(
+    {
+      model: MEMORY_MODEL,
+      max_tokens: 800,
+      system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: opts.user }],
+      output_config: { format: { type: 'json_schema', schema: MEMORY_SCHEMA as unknown as Record<string, unknown> } },
+    },
+    { timeout: 45_000, maxRetries: 1 },
+  );
+  const u = res.usage;
+  recordUsageFrom(u);
+  console.log(
+    `[memory] stop=${res.stop_reason} · in=${u.input_tokens} out=${u.output_tokens}`,
+  );
+  if (res.stop_reason === 'refusal') throw new Error('Zusammenfassung abgelehnt (refusal)');
+  if (res.stop_reason === 'max_tokens') throw new Error('Profil am Token-Limit abgeschnitten');
+  const text = res.content.find((b) => b.type === 'text')?.text;
+  if (!text) throw new Error('Leere Antwort');
+  const parsed = JSON.parse(text) as { profil?: unknown };
+  if (typeof parsed.profil !== 'string' || !parsed.profil.trim()) throw new Error('Kein Profil in der Antwort');
+  // Hartes Längen-Limit: das Profil wandert in jeden Chat-System-Prompt
+  return parsed.profil.trim().slice(0, 1500);
+}
+
+export function streamChat(opts: { system: string; profile?: string; messages: ChatMessage[] }) {
   // Cache-Breakpoint auf die LETZTE Nachricht OHNE Anhang setzen: ein Anhang-Turn
   // wird im Folge-Turn client-seitig durch einen Text-Marker ersetzt — ein
   // Breakpoint hinter den Bild-/PDF-Tokens würde also einen Cache-Eintrag
@@ -104,13 +159,25 @@ export function streamChat(opts: { system: string; messages: ChatMessage[] }) {
   let bp = opts.messages.length - 1;
   while (bp >= 0 && hasAttachment(opts.messages[bp])) bp--;
 
+  // Lern-Gedächtnis als EIGENER System-Block NACH dem stabilen Lehrer-Prompt:
+  // ändert sich das Profil (alle paar Turns), bleibt der große stabile Block
+  // vorne trotzdem im Prompt-Cache (Präfix-Match).
+  const system: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [
+    { type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } },
+  ];
+  if (opts.profile) {
+    system.push({
+      type: 'text',
+      text: `LERN-GEDÄCHTNIS (aus früheren Sitzungen, vom System gepflegt — nutze es natürlich, statt es aufzusagen):\n${opts.profile}`,
+      cache_control: { type: 'ephemeral' },
+    });
+  }
+
   return getClient().messages.stream({
     model: CLAUDE_MODEL,
     max_tokens: MAX_TOKENS,
     thinking: { type: 'disabled' },
-    system: [
-      { type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } },
-    ],
+    system,
     messages: opts.messages.map((m, i) => {
       if (i !== bp) return { role: m.role, content: m.content };
       const blocks: Array<ContentBlock & { cache_control?: { type: 'ephemeral' } }> =

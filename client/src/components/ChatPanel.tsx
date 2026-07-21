@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type Reac
 import { streamSSE, SSERequestError } from '../lib/sse'
 import { apiUrl, accessHeaders, setAccessCode } from '../lib/api'
 import { useRecognition, type SpeakOpts } from '../lib/speech'
+import { clearMemory, getProfile, hasMemory, noteExchange } from '../lib/memory'
 import { Icon } from './Icons'
 import Bilingual from './Bilingual'
 import VoiceBar from './VoiceBar'
@@ -392,7 +393,8 @@ export default function ChatPanel({
     try {
       await streamSSE(
         apiUrl('/api/chat'),
-        { messages: windowForApi(history, att), character: characterName },
+        // profile = Lern-Gedächtnis aus früheren Sitzungen (localStorage, Phase 2)
+        { messages: windowForApi(history, att), character: characterName, profile: getProfile(characterName) },
         {
           signal: controller.signal,
           headers: accessHeaders(),
@@ -445,6 +447,10 @@ export default function ChatPanel({
         if (!controller.signal.aborted) {
           voice.speak(splitPrevod(acc).main.replace(/\*/g, ''), lang)
         }
+        // Lern-Gedächtnis fortschreiben (persistierter Puffer, fire-and-forget).
+        // Anhänge als Text-Marker, damit der Summarizer den Kontext kennt.
+        const userForMemory = att ? `[${att.kind === 'image' ? 'Bild' : 'PDF'}: ${att.name}] ${text}`.trim() : text
+        noteExchange(characterName, userForMemory, acc)
       }
       if (truncated) setNotice('Die Antwort wurde wegen des Token-Limits gekürzt.')
     }
@@ -481,6 +487,26 @@ export default function ChatPanel({
         {messages.length === 0 && !busy && (
           <p className="chat-hint">
             Schreib {characterName} etwas — z.&nbsp;B. »Zdravo!« oder »Ich möchte Serbisch lernen«.
+            {hasMemory(characterName) && (
+              <>
+                <br />
+                <span className="mem-hint">
+                  🧠 {characterName} erinnert sich an frühere Sitzungen.{' '}
+                  <button
+                    type="button"
+                    className="mem-clear"
+                    onClick={() => {
+                      if (window.confirm(`Lern-Gedächtnis von ${characterName} wirklich löschen? Niveau, Themen und Fehlerprofil gehen verloren.`)) {
+                        clearMemory(characterName)
+                        setNotice('Lern-Gedächtnis gelöscht — die nächste Sitzung beginnt bei null.')
+                      }
+                    }}
+                  >
+                    Gedächtnis löschen
+                  </button>
+                </span>
+              </>
+            )}
           </p>
         )}
 
