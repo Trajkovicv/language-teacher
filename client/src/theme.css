@@ -286,6 +286,9 @@ table.decl td:first-child{font-weight:700}table.decl td:last-child{color:var(--i
 .voicebar[data-state="idle"] .wave i{animation:none;transform:scaleY(.35)}
 /* Voice-Bar: echter Mikrofonpegel — Balken werden per Inline-Transform gesteuert */
 .wave.live i{animation:none;transition:transform .07s linear}
+/* Ton-an/aus als Button (gleiche Optik wie der vhint-Text) */
+.vhint-btn{border:none;background:transparent;cursor:pointer;font-family:inherit;padding:0}
+.vhint-btn:disabled{cursor:default;opacity:.6}
 /* Mikrofon aktiv: Button hervorheben */
 .micbtn.active{background:linear-gradient(135deg,var(--brand1),var(--brand2));color:#fff;border-color:transparent;box-shadow:0 6px 16px var(--glow)}
 /* Pegel-Zonen im Hinweistext */

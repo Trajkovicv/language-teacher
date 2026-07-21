@@ -7,6 +7,7 @@ import DictionaryPanel from './components/DictionaryPanel'
 import ExercisePanel from './components/ExercisePanel'
 import { apiUrl } from './lib/api'
 import { useMicLevels } from './lib/mic'
+import { useSpeech } from './lib/speech'
 import type { Lang } from './lib/i18n'
 
 type Theme = 'light' | 'dusk' | 'midnight'
@@ -69,6 +70,7 @@ export default function App() {
   const [health, setHealth] = useState<Health | null>(null)
   const streak = useMemo(trackStreak, [])
   const mic = useMicLevels()
+  const voice = useSpeech()
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -118,7 +120,11 @@ export default function App() {
         ? null
         : null
 
-  const voiceState: 'teacher' | 'user' | 'idle' = mic.active ? 'user' : teacherBusy ? 'teacher' : 'idle'
+  const voiceState: 'teacher' | 'user' | 'idle' = mic.active
+    ? 'user'
+    : teacherBusy || voice.speaking
+      ? 'teacher'
+      : 'idle'
 
   return (
     <>
@@ -201,7 +207,22 @@ export default function App() {
               setMessages={setMessagesFor(character.id)}
               onBusyChange={setTeacherBusy}
               warning={warning}
-              mic={{ active: mic.active, levels: mic.levels, zone: mic.zone, error: mic.error, onToggle: mic.toggle }}
+              mic={{
+                active: mic.active,
+                levels: mic.levels,
+                zone: mic.zone,
+                error: mic.error,
+                onToggle: mic.toggle,
+                onStop: mic.stop,
+              }}
+              voice={{
+                enabled: voice.enabled,
+                supported: voice.supported,
+                speaking: voice.speaking,
+                toggle: voice.toggle,
+                speak: voice.speak,
+                cancel: voice.cancel,
+              }}
             />
             <DictionaryPanel active={tab === 'dict'} lang={lang} savedWords={savedWords} onToggleSaved={toggleSaved} />
             <ExercisePanel active={tab === 'ex'} lang={lang} />

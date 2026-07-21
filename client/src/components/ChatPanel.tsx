@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { streamSSE, SSERequestError } from '../lib/sse'
 import { apiUrl, accessHeaders, setAccessCode } from '../lib/api'
+import { useRecognition } from '../lib/speech'
 import { Icon } from './Icons'
 import Bilingual from './Bilingual'
 import VoiceBar from './VoiceBar'
@@ -15,6 +16,16 @@ type MicProps = {
   zone: MicZone
   error: string | null
   onToggle: () => void
+  onStop: () => void
+}
+
+type VoiceProps = {
+  enabled: boolean
+  supported: boolean
+  speaking: boolean
+  toggle: () => void
+  speak: (text: string, lang: Lang) => boolean
+  cancel: () => void
 }
 
 type Props = {
@@ -26,6 +37,7 @@ type Props = {
   onBusyChange: (busy: boolean) => void
   warning: string | null
   mic: MicProps
+  voice: VoiceProps
 }
 
 // Muss zu den Server-Limits passen (server/index.ts: MAX_MESSAGES/MAX_MESSAGE_CHARS)
@@ -98,6 +110,7 @@ export default function ChatPanel({
   onBusyChange,
   warning,
   mic,
+  voice,
 }: Props) {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -130,9 +143,27 @@ export default function ChatPanel({
     [],
   )
 
+  // Diktat: erkannter Satz wird direkt gesendet, Mikrofon danach freigegeben
+  const rec = useRecognition((text) => {
+    mic.onStop()
+    void send(text)
+  })
+
+  function micToggle() {
+    if (mic.active || rec.listening) {
+      mic.onStop()
+      rec.stop()
+    } else {
+      voice.cancel()
+      mic.onToggle()
+      if (rec.supported) rec.start(lang)
+    }
+  }
+
   async function send(textOverride?: string) {
     const text = (textOverride ?? input).trim()
     if (!text || busy) return
+    voice.cancel() // laufende Sprachausgabe stoppen, neue Runde beginnt
     setInput('')
     setNotice(null)
     setBusy(true)
@@ -202,7 +233,12 @@ export default function ChatPanel({
         )
       }
     } finally {
-      if (acc) setMessages((m) => [...m, { role: 'assistant', content: acc }])
+      if (acc) {
+        setMessages((m) => [...m, { role: 'assistant', content: acc }])
+        // Antwort laut vorlesen (ohne PREVOD-Zeile); Serbisch bleibt still,
+        // solange der Browser keine Stimme hat (Phase 3: Azure TTS)
+        voice.speak(splitPrevod(acc).main.replace(/\*/g, ''), lang)
+      }
       if (truncated) setNotice('Die Antwort wurde wegen des Token-Limits gekürzt.')
     }
   }
@@ -302,10 +338,15 @@ export default function ChatPanel({
 
       <VoiceBar
         characterName={characterName}
-        mode={mic.active ? 'user' : busy ? 'teacher' : 'idle'}
+        mode={mic.active || rec.listening ? 'user' : busy || voice.speaking ? 'teacher' : 'idle'}
         levels={mic.levels}
         zone={mic.zone}
         micError={mic.error}
+        listening={rec.listening}
+        interim={rec.interim}
+        voiceEnabled={voice.enabled}
+        voiceSupported={voice.supported}
+        onVoiceToggle={voice.toggle}
       />
 
       <form
@@ -317,9 +358,9 @@ export default function ChatPanel({
       >
         <button
           type="button"
-          className={mic.active ? 'micbtn active' : 'micbtn'}
-          onClick={mic.onToggle}
-          title="Mikrofontest · Test mikrofona"
+          className={mic.active || rec.listening ? 'micbtn active' : 'micbtn'}
+          onClick={micToggle}
+          title={rec.supported ? 'Sprechen · Govori' : 'Mikrofontest · Test mikrofona'}
         >
           <Icon id="i-mic" />
         </button>

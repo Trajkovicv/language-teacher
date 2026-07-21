@@ -29,6 +29,9 @@ Screenshot*.png
 # Laufzeit-Artefakte des Dev-Setups
 .claude/scheduled_tasks.lock
 
+# Lokale Backups (enthalten docs/ mit privaten Dateien)
+backup/
+
 # Editor / OS
 .vscode/
 .idea/

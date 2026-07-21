@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import Bilingual from './Bilingual'
 import type { Lang } from '../lib/i18n'
 
@@ -11,12 +10,6 @@ export const CHARACTERS: readonly Character[] = [
   { id: 'ana', name: 'Ana', mark: 'A' },
 ] as const
 
-const BASE = import.meta.env.BASE_URL
-
-export function photoPath(id: CharacterId): string {
-  return `${BASE}characters/${id}.png`
-}
-
 type Props = {
   character: Character
   onSelect: (c: Character) => void
@@ -25,12 +18,13 @@ type Props = {
   stats: { minutes: number; words: number; streak: number }
 }
 
+/**
+ * Sidebar mit Avatar-Bühne. Die Bühne zeigt die animierten Charakter-
+ * Illustrationen (Sprech-Ring koralle = Lehrer:in spricht, grün = du sprichst).
+ * Fotos werden bewusst nicht mehr verwendet; in Phase 3 wird die Bühne durch
+ * den Simli-Live-Video-Avatar ersetzt (<video> an gleicher Stelle).
+ */
 export default function Sidebar({ character, onSelect, voiceState, lang, stats }: Props) {
-  // Foto vorhanden? Sonst SVG-Illustration aus dem Sprite (wie im Mockup).
-  // Wichtig fürs Deployment: mila.png ist privat und liegt online nicht vor.
-  const [broken, setBroken] = useState<Partial<Record<CharacterId, boolean>>>({})
-  const markBroken = (id: CharacterId) => setBroken((b) => (b[id] ? b : { ...b, [id]: true }))
-
   const ringClass =
     voiceState === 'teacher' ? 'stage-av speaking' : voiceState === 'user' ? 'stage-av user-speaking' : 'stage-av'
 
@@ -38,13 +32,9 @@ export default function Sidebar({ character, onSelect, voiceState, lang, stats }
     <aside>
       <div className="hero">
         <div className={ringClass}>
-          {broken[character.id] ? (
-            <svg className="floaty" viewBox="0 0 300 360">
-              <use href={`#sym-${character.id}`} />
-            </svg>
-          ) : (
-            <img src={photoPath(character.id)} alt="" onError={() => markBroken(character.id)} />
-          )}
+          <svg className="floaty" viewBox="0 0 300 360">
+            <use href={`#sym-${character.id}`} />
+          </svg>
           <div className="spk-ring" />
         </div>
         <div className="hero-info">
@@ -70,13 +60,9 @@ export default function Sidebar({ character, onSelect, voiceState, lang, stats }
               onClick={() => onSelect(c)}
             >
               <div className="ring">
-                {broken[c.id] ? (
-                  <svg viewBox="55 78 190 190">
-                    <use href={`#sym-${c.id}`} />
-                  </svg>
-                ) : (
-                  <img src={photoPath(c.id)} alt="" onError={() => markBroken(c.id)} />
-                )}
+                <svg viewBox="55 78 190 190">
+                  <use href={`#sym-${c.id}`} />
+                </svg>
               </div>
               <div className="nm">{c.name}</div>
             </button>

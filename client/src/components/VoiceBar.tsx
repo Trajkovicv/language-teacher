@@ -6,6 +6,11 @@ type Props = {
   levels: number[]
   zone: MicZone
   micError: string | null
+  listening: boolean
+  interim: string
+  voiceEnabled: boolean
+  voiceSupported: boolean
+  onVoiceToggle: () => void
 }
 
 const ZONE_HINT: Record<MicZone, string> = {
@@ -14,19 +19,32 @@ const ZONE_HINT: Record<MicZone, string> = {
   loud: '🎙 Übersteuert · Preglasno',
 }
 
-// Dezente Voice-Bar aus dem Mockup. Koralle = Lehrer:in spricht (Streaming),
-// Grün = Nutzer spricht (echter Mikrofonpegel via AnalyserNode).
-export default function VoiceBar({ characterName, mode, levels, zone, micError }: Props) {
+// Dezente Voice-Bar aus dem Mockup. Koralle = Lehrer:in spricht (Streaming/Stimme),
+// Grün = Nutzer spricht (echter Mikrofonpegel + Spracherkennung).
+export default function VoiceBar({
+  characterName,
+  mode,
+  levels,
+  zone,
+  micError,
+  listening,
+  interim,
+  voiceEnabled,
+  voiceSupported,
+  onVoiceToggle,
+}: Props) {
   const state = mode === 'user' ? 'user' : mode === 'teacher' ? 'mila' : 'idle'
 
   const label =
     mode === 'user'
-      ? { lead: 'Du sprichst …', t2: 'Ti govoriš …' }
+      ? listening && interim
+        ? { lead: `»${interim}«`, t2: 'Du sprichst … · Ti govoriš …' }
+        : { lead: 'Du sprichst …', t2: 'Ti govoriš …' }
       : mode === 'teacher'
         ? { lead: `${characterName} spricht …`, t2: `${characterName} govori …` }
         : { lead: `${characterName} hört dir zu …`, t2: `${characterName} sluša te …` }
 
-  const hint = micError ?? (mode === 'user' ? ZONE_HINT[zone] : mode === 'teacher' ? '🔊 Ton an' : '🎙 Mikro testen')
+  const hint = micError ?? (mode === 'user' ? ZONE_HINT[zone] : voiceEnabled ? '🔊 Ton an' : '🔇 Ton aus')
   const hintClass = micError ? 'vhint zone-loud' : mode === 'user' ? `vhint zone-${zone}` : 'vhint'
 
   return (
@@ -48,7 +66,19 @@ export default function VoiceBar({ characterName, mode, levels, zone, micError }
         <span className="lead">{label.lead}</span>
         <span className="t2">{label.t2}</span>
       </span>
-      <span className={hintClass}>{hint}</span>
+      {mode === 'user' || micError ? (
+        <span className={hintClass}>{hint}</span>
+      ) : (
+        <button
+          type="button"
+          className={`${hintClass} vhint-btn`}
+          onClick={onVoiceToggle}
+          disabled={!voiceSupported}
+          title={voiceSupported ? 'Stimme an/aus · Zvuk' : 'Keine Browser-Stimme verfügbar'}
+        >
+          {voiceSupported ? hint : '🔇 Keine Stimme'}
+        </button>
+      )}
     </div>
   )
 }

@@ -113,5 +113,5 @@ export function useMicLevels() {
   // Beim Verlassen der App Mikro sicher freigeben
   useEffect(() => stop, [])
 
-  return { active, error, levels, zone, toggle }
+  return { active, error, levels, zone, toggle, stop }
 }
