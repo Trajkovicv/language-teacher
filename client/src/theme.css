@@ -338,3 +338,20 @@ table.decl td:first-child{font-weight:700}table.decl td:last-child{color:var(--i
 /* Lern-Gedächtnis-Hinweis im leeren Chat */
 .mem-hint{display:inline-block;margin-top:8px;font-size:12px;color:var(--ink-soft)}
 .mem-clear{border:none;background:transparent;color:var(--brand-ink);font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;text-decoration:underline;padding:0}
+/* ===== Profi-Diktat: Aufnahme-Leiste + Lösch-X im Eingabefeld ===== */
+.dict-bar{display:flex;align-items:center;gap:9px;padding:8px 16px 0;background:var(--card)}
+.dict-dot{width:10px;height:10px;border-radius:50%;background:#e5484d;flex-shrink:0;animation:dictPulse 1.2s ease-in-out infinite}
+@keyframes dictPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+.dict-lbl{flex:1;min-width:0;font-size:12px;font-weight:700;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dict-lbl i{color:var(--brand-ink)}
+.dict-btn{border:1.5px solid var(--line);background:var(--card-2);color:var(--ink);font-family:inherit;font-size:12px;font-weight:700;border-radius:10px;padding:6px 10px;cursor:pointer;flex-shrink:0}
+.dict-btn:hover{border-color:var(--brand-ink)}
+.dict-btn.danger{color:var(--brick)}
+.in-wrap{position:relative;flex:1;display:flex;min-width:0}
+.in-wrap .in{width:100%;padding-right:36px}
+.in-clear{position:absolute;right:9px;top:50%;transform:translateY(-50%);border:none;background:var(--card);color:var(--ink-soft);width:24px;height:24px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:800;line-height:1}
+.in-clear:hover{color:var(--brick)}
+@media (max-width:520px){
+  .dict-bar{padding:8px 10px 0;gap:6px}
+  .dict-btn{padding:6px 8px}
+}

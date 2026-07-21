@@ -666,7 +666,7 @@ type RecognitionLike = {
   lang: string
   interimResults: boolean
   continuous: boolean
-  onresult: ((e: { results: ArrayLike<RecognitionResult> }) => void) | null
+  onresult: ((e: { results: ArrayLike<RecognitionResult>; resultIndex?: number }) => void) | null
   onend: (() => void) | null
   onerror: ((e: { error?: string }) => void) | null
   start(): void
@@ -679,61 +679,113 @@ function recognitionCtor(): (new () => RecognitionLike) | null {
 }
 
 /**
- * Einfache Diktat-Erkennung: start() hört EINEN Satz, liefert ihn an onFinal
- * und stoppt. Serbisch-Erkennung ist browserabhängig wackelig — Phase 3 (Whisper).
+ * Diktier-Modus (Profi-Diktat): start() hört KONTINUIERLICH zu. Fertig erkannte
+ * Satzteile gehen an onSegment (der Chat hängt sie ans Eingabefeld an — KEIN
+ * Auto-Senden). Die Engine stoppt von selbst nach Stille — der Modus startet
+ * sie dann leise neu, damit der Nutzer Denkpausen machen kann, so lange er
+ * will. stop() pausiert; der diktierte Text bleibt stehen.
+ * Serbisch-Erkennung ist browserabhängig wackelig — Phase 3 (Whisper).
  */
-export function useRecognition(onFinal: (text: string) => void, onError?: (code: string) => void) {
+export function useRecognition(onSegment: (text: string) => void, onError?: (code: string) => void) {
   const supported = typeof window !== 'undefined' && recognitionCtor() !== null
-  const [listening, setListening] = useState(false)
+  const [active, setActive] = useState(false) // Diktier-Modus an (überlebt Auto-Neustarts)
+  const [listening, setListening] = useState(false) // Mikro gerade wirklich offen
   const [interim, setInterim] = useState('')
   const recRef = useRef<RecognitionLike | null>(null)
-  const onFinalRef = useRef(onFinal)
-  onFinalRef.current = onFinal
+  const activeRef = useRef(false)
+  const langRef = useRef<Lang>('de')
+  const restartTimerRef = useRef(0)
+  const startedAtRef = useRef(0)
+  const quickEndsRef = useRef(0) // Schutz gegen Endlos-Neustart, wenn das Mikro klemmt
+  const onSegmentRef = useRef(onSegment)
+  onSegmentRef.current = onSegment
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
 
-  function start(lang: Lang) {
+  function deactivate() {
+    activeRef.current = false
+    clearTimeout(restartTimerRef.current)
+    setActive(false)
+    setInterim('')
+  }
+
+  function openRec() {
     const Ctor = recognitionCtor()
-    if (!Ctor || listening) return
+    if (!Ctor) return
     const rec = new Ctor()
-    rec.lang = SPEECH_LANG[lang]
+    rec.lang = SPEECH_LANG[langRef.current]
     rec.interimResults = true
-    rec.continuous = false
+    rec.continuous = true
     rec.onresult = (e) => {
-      const last = e.results[e.results.length - 1]
-      if (!last) return
-      const text = last[0].transcript.trim()
-      if (last.isFinal) {
-        setInterim('')
-        if (text) onFinalRef.current(text)
-      } else {
-        setInterim(text)
+      quickEndsRef.current = 0 // es kommt etwas an — Mikro funktioniert
+      let interimText = ''
+      const from = e.resultIndex ?? 0
+      for (let i = from; i < e.results.length; i++) {
+        const r = e.results[i]
+        const text = r[0].transcript
+        if (r.isFinal) {
+          if (text.trim()) onSegmentRef.current(text.trim())
+        } else {
+          interimText += text
+        }
       }
+      setInterim(interimText.trim())
     }
     rec.onend = () => {
       setListening(false)
       setInterim('')
       recRef.current = null
+      if (!activeRef.current) return
+      // Engine nach Stille von selbst beendet → leise weiterhören.
+      // Endet sie wiederholt SOFORT, stimmt etwas nicht — dann aufgeben.
+      if (Date.now() - startedAtRef.current < 500) {
+        if (++quickEndsRef.current >= 5) {
+          deactivate()
+          onErrorRef.current?.('unavailable')
+          return
+        }
+      }
+      restartTimerRef.current = window.setTimeout(() => {
+        if (activeRef.current && !recRef.current) openRec()
+      }, 250)
     }
     rec.onerror = (e) => {
-      setListening(false)
-      setInterim('')
-      recRef.current = null
-      onErrorRef.current?.(e.error ?? 'unknown')
+      const code = e.error ?? 'unknown'
+      // 'no-speech' ist im Dauer-Modus normal (Denkpause), 'aborted' = eigenes stop()
+      if (code === 'no-speech' || code === 'aborted') return
+      deactivate()
+      onErrorRef.current?.(code)
     }
     recRef.current = rec
-    setListening(true)
-    rec.start()
+    startedAtRef.current = Date.now()
+    try {
+      rec.start()
+      setListening(true)
+    } catch {
+      // z. B. schon gestartet — onend/onerror regeln den Rest
+    }
   }
 
+  /** Diktier-Modus starten (läuft mit Auto-Neustart, bis stop()). */
+  function start(lang: Lang) {
+    if (!recognitionCtor() || activeRef.current) return
+    langRef.current = lang
+    activeRef.current = true
+    quickEndsRef.current = 0
+    setActive(true)
+    openRec()
+  }
+
+  /** Pausieren/Beenden — der diktierte Text bleibt im Eingabefeld. */
   function stop() {
-    recRef.current?.abort()
+    deactivate()
+    const rec = recRef.current
     recRef.current = null
+    rec?.abort()
     setListening(false)
-    setInterim('')
   }
 
   useEffect(() => stop, [])
 
-  return { supported, listening, interim, start, stop }
+  return { supported, active, listening, interim, start, stop }
 }

@@ -320,18 +320,25 @@ export default function ChatPanel({
     [],
   )
 
-  // Diktat: erkannter Satz wird direkt gesendet
+  // Profi-Diktat: erkannte Satzteile werden ans EINGABEFELD angehängt —
+  // gesendet wird erst, wenn der Nutzer selbst auf Senden tippt.
   const rec = useRecognition(
-    (text) => void send(text),
+    (segment) => {
+      setInput((cur) => {
+        const base = cur.replace(/\s+$/, '')
+        return base ? `${base} ${segment}` : segment
+      })
+    },
     (code) => {
-      if (code === 'no-speech') setNotice('Nichts verstanden — tippe aufs Mikro und sprich direkt los.')
-      else if (code === 'service-not-allowed') {
+      if (code === 'service-not-allowed') {
         // Typisch installierte iOS-App: Diktat-Dienst nicht verfügbar, obwohl die
         // API existiert. Ab jetzt macht der Mikro-Knopf den Pegel-Mikrofontest.
         recFailedRef.current = true
         setNotice('Diktat ist hier leider nicht verfügbar (installierte App). Der Mikro-Knopf zeigt jetzt den Mikrofontest — zum Diktieren die App im Safari-Browser öffnen.')
       } else if (code === 'not-allowed')
         setNotice('Mikrofon nicht erlaubt — bitte die Berechtigung im Browser/System freigeben.')
+      else if (code === 'unavailable')
+        setNotice('Das Mikrofon meldet sich nicht — bitte prüfen, ob eine andere App es gerade benutzt.')
       else setNotice('Spracheingabe hat nicht geklappt — bitte nochmal versuchen.')
     },
   )
@@ -345,12 +352,15 @@ export default function ChatPanel({
 
   // WICHTIG: Erkennung und Pegel-Mikrofon NIE gleichzeitig — auf vielen Handys
   // kann nur einer das Mikrofon halten, die Erkennung bräche sonst sofort ab.
-  // Mit Erkennung: nur Diktat. Ohne (z. B. Firefox): der reine Mikrofontest.
+  // Mit Erkennung: Profi-Diktat. Ohne (z. B. Firefox): der reine Mikrofontest.
   function micToggle() {
     voice.prime() // Mobile: Audio in der Geste entsperren
-    if (mic.active || rec.listening) {
+    if (mic.active) {
       mic.onStop()
-      rec.stop()
+      return
+    }
+    if (rec.active) {
+      rec.stop() // Pause — der diktierte Text bleibt im Eingabefeld
       return
     }
     voice.cancel()
@@ -665,16 +675,44 @@ export default function ChatPanel({
 
       <VoiceBar
         characterName={characterName}
-        mode={mic.active || rec.listening ? 'user' : busy || voice.speaking ? 'teacher' : 'idle'}
+        mode={mic.active || rec.active ? 'user' : busy || voice.speaking ? 'teacher' : 'idle'}
         levels={mic.levels}
         zone={mic.zone}
         micError={mic.error}
-        listening={rec.listening}
+        listening={rec.active}
         interim={rec.interim}
         voiceEnabled={voice.enabled}
         voiceSupported={voice.supported}
         onVoiceToggle={voice.toggle}
       />
+
+      {/* Profi-Diktat: Aufnahme-Leiste — pausieren/weitersprechen, senden erst per Knopf */}
+      {rec.active && (
+        <div className="dict-bar">
+          <span className="dict-dot" />
+          <span className="dict-lbl">
+            {rec.interim ? (
+              <i>»{rec.interim}«</i>
+            ) : (
+              <>Aufnahme läuft — sprich einfach, Pausen sind ok · Snimanje u toku</>
+            )}
+          </span>
+          <button type="button" className="dict-btn" onClick={() => rec.stop()} title="Aufnahme pausieren · Pauza">
+            ⏸ Pause
+          </button>
+          <button
+            type="button"
+            className="dict-btn danger"
+            onClick={() => {
+              rec.stop()
+              setInput('')
+            }}
+            title="Aufnahme verwerfen · Odbaci"
+          >
+            ✕ Verwerfen
+          </button>
+        </div>
+      )}
 
       {attachment && (
         <div className="att-pending">
@@ -715,20 +753,39 @@ export default function ChatPanel({
         </button>
         <button
           type="button"
-          className={mic.active || rec.listening ? 'micbtn active' : 'micbtn'}
+          className={mic.active || rec.active ? 'micbtn active' : 'micbtn'}
           onClick={micToggle}
-          title={rec.supported ? 'Sprechen · Govori' : 'Mikrofontest · Test mikrofona'}
+          title={
+            rec.active
+              ? 'Aufnahme pausieren · Pauza'
+              : rec.supported
+                ? 'Diktieren · Diktiraj'
+                : 'Mikrofontest · Test mikrofona'
+          }
         >
           <Icon id="i-mic" />
         </button>
-        <input
-          className="in"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          maxLength={MAX_INPUT_CHARS}
-          placeholder="Napiši poruku… · Schreib hier…"
-          aria-label="Nachricht"
-        />
+        <span className="in-wrap">
+          <input
+            className="in"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            maxLength={MAX_INPUT_CHARS}
+            placeholder={rec.active ? 'Sprich — dein Text erscheint hier…' : 'Napiši poruku… · Schreib hier…'}
+            aria-label="Nachricht"
+          />
+          {input.length > 0 && (
+            <button
+              type="button"
+              className="in-clear"
+              title="Text löschen · Obriši"
+              aria-label="Text löschen"
+              onClick={() => setInput('')}
+            >
+              ✕
+            </button>
+          )}
+        </span>
         {busy ? (
           <button type="button" className="send" onClick={stop}>
             Stopp
