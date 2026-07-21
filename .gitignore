@@ -8,8 +8,12 @@ client/dev-dist/
 
 # Umgebungsvariablen — enthält den API-Key, niemals committen
 .env
-.env.local
+.env.*
+!.env.example
 *.local
+# Versehentlich abgelegte Schlüssel-Dateien
+sk-ant-*.txt
+*api*key*.txt
 
 # PRIVAT: mila.png ist ein privates Foto — bleibt lokal, wird nie veröffentlicht
 # (die App zeigt online automatisch einen Platzhalter; siehe docs/charakter-portraits-anleitung.md)

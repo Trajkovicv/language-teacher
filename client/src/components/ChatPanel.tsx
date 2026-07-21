@@ -1,18 +1,38 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { streamSSE, SSERequestError } from '../lib/sse'
 import { apiUrl, accessHeaders, setAccessCode } from '../lib/api'
+import { Icon } from './Icons'
+import Bilingual from './Bilingual'
+import VoiceBar from './VoiceBar'
+import type { Lang } from '../lib/i18n'
+import type { MicZone } from '../lib/mic'
 
 export type UiMessage = { role: 'user' | 'assistant'; content: string }
 
+type MicProps = {
+  active: boolean
+  levels: number[]
+  zone: MicZone
+  error: string | null
+  onToggle: () => void
+}
+
 type Props = {
+  active: boolean
+  lang: Lang
   characterName: string
   messages: UiMessage[]
   setMessages: Dispatch<SetStateAction<UiMessage[]>>
+  onBusyChange: (busy: boolean) => void
+  warning: string | null
+  mic: MicProps
 }
 
 // Muss zu den Server-Limits passen (server/index.ts: MAX_MESSAGES/MAX_MESSAGE_CHARS)
 const MAX_INPUT_CHARS = 4000
 const HISTORY_WINDOW = 50
+
+const QUICK_REPLIES = ['Doviđenja! 👋', 'Ponovi, molim te', 'Kako se kaže „Tschüss"?'] as const
 
 /**
  * Letzte N Nachrichten senden; die erste muss role 'user' haben (API-Anforderung).
@@ -56,7 +76,25 @@ function hidePartialPrevodMarker(text: string): string {
   return text
 }
 
-export default function ChatPanel({ characterName, messages, setMessages }: Props) {
+/** Minimales Markdown: **fett** und *kursiv* aus Claude-Antworten hübsch rendern. */
+function renderRich(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) return <b key={i}>{part.slice(2, -2)}</b>
+    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) return <i key={i}>{part.slice(1, -1)}</i>
+    return part
+  })
+}
+
+export default function ChatPanel({
+  active,
+  lang,
+  characterName,
+  messages,
+  setMessages,
+  onBusyChange,
+  warning,
+  mic,
+}: Props) {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   // null = kein Stream aktiv; '' = Anfrage läuft, noch kein Token (Tipp-Indikator)
@@ -72,12 +110,24 @@ export default function ChatPanel({ characterName, messages, setMessages }: Prop
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, pendingText, notice])
 
+  // App über den Sprech-Zustand informieren (Voice-Bar + Hero-Ring)
+  useEffect(() => {
+    onBusyChange(busy)
+  }, [busy, onBusyChange])
+
   // Beim Unmount (z. B. Charakterwechsel via key) laufenden Stream abbrechen —
   // der Server stoppt dann auch den Claude-Stream (Kostenkontrolle)
-  useEffect(() => () => abortRef.current?.abort(), [])
+  useEffect(
+    () => () => {
+      abortRef.current?.abort()
+      onBusyChange(false)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
-  async function send() {
-    const text = input.trim()
+  async function send(textOverride?: string) {
+    const text = (textOverride ?? input).trim()
     if (!text || busy) return
     setInput('')
     setNotice(null)
@@ -158,10 +208,28 @@ export default function ChatPanel({ characterName, messages, setMessages }: Prop
   }
 
   const streaming = splitPrevod(hidePartialPrevodMarker(pendingText ?? ''))
+  const assistantCount = messages.filter((m) => m.role === 'assistant').length
+  const step = Math.min(assistantCount, 5)
 
   return (
-    <section className="chat">
-      <div className="chat-list" ref={listRef}>
+    <div className={active ? 'panel active' : 'panel'} data-panel="chat">
+      <div className="panel-scroll" ref={listRef}>
+        <div className="day-hint">
+          <Bilingual k="lesson" lang={lang} />
+        </div>
+        {assistantCount > 0 && (
+          <div className="lesson-prog">
+            <div className="lp-bar">
+              <span style={{ width: `${(step / 5) * 100}%` }} />
+            </div>
+            <div className="lp-txt">
+              Schritt {step} von 5 <i>· Korak {step} od 5</i>
+            </div>
+          </div>
+        )}
+
+        {warning && <div className="msg notice">{warning}</div>}
+
         {messages.length === 0 && !busy && (
           <p className="chat-hint">
             Schreib {characterName} etwas — z.&nbsp;B. »Zdravo!« oder »Ich möchte Serbisch lernen«.
@@ -171,66 +239,104 @@ export default function ChatPanel({ characterName, messages, setMessages }: Prop
         {messages.map((m, i) => {
           if (m.role === 'user') {
             return (
-              <div key={i} className="bubble user">
+              <div key={i} className="msg student">
                 <div className="who">Du</div>
-                <div>{m.content}</div>
+                {m.content}
               </div>
             )
           }
           const { main, prevod } = splitPrevod(m.content)
           return (
-            <div key={i} className="bubble assistant">
-              <div className="who">{characterName}</div>
-              <div className="msg-text">{main}</div>
-              {prevod && <div className="prevod">🇷🇸 {prevod}</div>}
+            <div key={i} className="msg mila">
+              <div className="who">
+                <span className="charName">{characterName}</span>
+              </div>
+              {renderRich(main)}
+              {prevod && <span className="tl">🇷🇸 {renderRich(prevod)}</span>}
             </div>
           )
         })}
 
-        {pendingText !== null && (
-          <div className="bubble assistant">
-            <div className="who">{characterName}</div>
-            {pendingText === '' ? (
-              <div className="typing">tippt…</div>
-            ) : (
-              <>
-                <div className="msg-text">
-                  {streaming.main}
-                  <span className="cursor">▍</span>
-                </div>
-                {streaming.prevod && <div className="prevod">🇷🇸 {streaming.prevod}</div>}
-              </>
-            )}
+        {pendingText === '' && (
+          <div className="msg mila typing">
+            <div className="who">
+              <span className="charName">{characterName}</span>&nbsp;· schreibt · piše …
+            </div>
+            <div className="tdots">
+              <i></i>
+              <i></i>
+              <i></i>
+            </div>
+          </div>
+        )}
+        {pendingText !== null && pendingText !== '' && (
+          <div className="msg mila">
+            <div className="who">
+              <span className="charName">{characterName}</span>
+            </div>
+            {renderRich(streaming.main)}
+            <span className="cursor" />
+            {streaming.prevod && <span className="tl">🇷🇸 {renderRich(streaming.prevod)}</span>}
           </div>
         )}
 
-        {notice && <div className="bubble notice">{notice}</div>}
+        {notice && <div className="msg notice">{notice}</div>}
+
+        {!busy && messages.length > 0 && (
+          <div className="quick">
+            <div className="q-lbl">Schnellantworten · Brzi odgovori</div>
+            <div className="q-row">
+              {QUICK_REPLIES.map((q) => (
+                <button key={q} type="button" className="qr" onClick={() => void send(q)}>
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
+      <VoiceBar
+        characterName={characterName}
+        mode={mic.active ? 'user' : busy ? 'teacher' : 'idle'}
+        levels={mic.levels}
+        zone={mic.zone}
+        micError={mic.error}
+      />
+
       <form
-        className="chat-input"
+        className="inputbar"
         onSubmit={(e) => {
           e.preventDefault()
           void send()
         }}
       >
+        <button
+          type="button"
+          className={mic.active ? 'micbtn active' : 'micbtn'}
+          onClick={mic.onToggle}
+          title="Mikrofontest · Test mikrofona"
+        >
+          <Icon id="i-mic" />
+        </button>
         <input
+          className="in"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           maxLength={MAX_INPUT_CHARS}
-          placeholder={`Nachricht an ${characterName}…`}
+          placeholder="Napiši poruku… · Schreib hier…"
           aria-label="Nachricht"
         />
         {busy ? (
-          <button type="button" onClick={stop}>
+          <button type="button" className="send" onClick={stop}>
             Stopp
           </button>
         ) : (
-          <button type="submit" disabled={!input.trim()}>
-            Senden
+          <button type="submit" className="send" disabled={!input.trim()}>
+            <Bilingual k="send" lang={lang} />
           </button>
         )}
       </form>
-    </section>
+    </div>
   )
 }
