@@ -50,23 +50,27 @@ type Props = {
 export default function DictionaryPanel({ active, lang, savedWords, onToggleSaved }: Props) {
   const [query, setQuery] = useState('')
   const [entry, setEntry] = useState<DictEntry>(DEMO_ENTRY)
-  const [loading, setLoading] = useState(false)
+  // Während der Suche angezeigtes Wort — unabhängig vom Eingabefeld,
+  // damit Weitertippen die Lade-Anzeige nicht verändert
+  const [searchingWord, setSearchingWord] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const loading = searchingWord !== null
   const starred = savedWords.includes(entry.word)
 
   async function search(word: string) {
     const w = word.trim()
     if (!w || loading) return
-    setLoading(true)
+    setSearchingWord(w)
     setError(null)
     try {
       const result = await postJson<DictEntry>('/api/dictionary', { word: w, primaryLang: lang })
       setEntry(result)
-      setQuery(result.word)
+      // Nur normalisieren, wenn der Nutzer nicht längst weitergetippt hat
+      setQuery((q) => (q.trim() === w ? result.word : q))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Das Wörterbuch macht kurz Pause… Versuch es gleich noch einmal.')
     } finally {
-      setLoading(false)
+      setSearchingWord(null)
     }
   }
 
@@ -101,7 +105,7 @@ export default function DictionaryPanel({ active, lang, savedWords, onToggleSave
         )}
         {loading && (
           <div className="mc-fb" style={{ display: 'block', color: 'var(--ink-soft)', marginBottom: 10 }}>
-            Suche »{query.trim()}« … · Tražim …
+            Suche »{searchingWord}« … · Tražim …
           </div>
         )}
         <div className="entry-head">

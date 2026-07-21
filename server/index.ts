@@ -263,15 +263,23 @@ type Exercise =
   | { type: 'blank'; question: string; bank: string[]; correctWord: string; feedbackCorrect: string; feedbackWrong: string };
 
 /** Schema garantiert die Form — hier nur noch die inhaltliche Konsistenz prüfen. */
+function allUniqueAndNonEmpty(items: string[]): boolean {
+  return new Set(items).size === items.length && items.every((s) => s.trim().length > 0);
+}
+
 function validateExercise(raw: unknown): Exercise | null {
   const ex = raw as Exercise;
+  if (!ex.question?.trim() || !ex.feedbackCorrect?.trim() || !ex.feedbackWrong?.trim()) return null;
   if (ex.type === 'mc') {
     if (ex.options.length < 2 || ex.options.length > 5) return null;
+    // Duplikate wären per Index-Vergleich im Client unfair bewertbar
+    if (!allUniqueAndNonEmpty(ex.options)) return null;
     if (!Number.isInteger(ex.correctIndex) || ex.correctIndex < 0 || ex.correctIndex >= ex.options.length) return null;
     return ex;
   }
   if (ex.type === 'blank') {
     if (ex.bank.length < 2 || ex.bank.length > 6) return null;
+    if (!allUniqueAndNonEmpty(ex.bank)) return null;
     if (!ex.bank.includes(ex.correctWord)) return null;
     if (!ex.question.includes('___')) return null;
     return ex;

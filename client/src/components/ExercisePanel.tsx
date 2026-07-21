@@ -124,7 +124,14 @@ export default function ExercisePanel({ active, lang }: Props) {
               <div className="d">Prevedi DE ⇄ SR</div>
             </div>
           </button>
-          <button type="button" className="ex-type" onClick={() => setHint('Hör-Übungen brauchen die Stimme — die kommt in Phase 3 (Azure TTS).')}>
+          <button
+            type="button"
+            className="ex-type"
+            onClick={() => {
+              setError(null)
+              setHint('Hör-Übungen brauchen die Stimme — die kommt in Phase 3 (Azure TTS).')
+            }}
+          >
             <div className="ic">
               <Icon id="i-phones" />
             </div>

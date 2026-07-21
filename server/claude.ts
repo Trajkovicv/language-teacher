@@ -34,14 +34,19 @@ export async function createJson(opts: {
   user: string;
   schema: Record<string, unknown>;
 }): Promise<unknown> {
-  const res = await getClient().messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: MAX_TOKENS,
-    thinking: { type: 'disabled' },
-    system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
-    messages: [{ role: 'user', content: opts.user }],
-    output_config: { format: { type: 'json_schema', schema: opts.schema } },
-  });
+  const res = await getClient().messages.create(
+    {
+      model: CLAUDE_MODEL,
+      max_tokens: MAX_TOKENS,
+      thinking: { type: 'disabled' },
+      system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: opts.user }],
+      output_config: { format: { type: 'json_schema', schema: opts.schema } },
+    },
+    // Interaktive Suche: lieber nach 60 s freundlich scheitern als am
+    // SDK-Default (10 min × 3 Versuche) hängen
+    { timeout: 60_000, maxRetries: 1 },
+  );
   const u = res.usage;
   console.log(
     `[json] stop=${res.stop_reason} · in=${u.input_tokens} out=${u.output_tokens} cacheRead=${u.cache_read_input_tokens ?? 0} cacheWrite=${u.cache_creation_input_tokens ?? 0}`,
