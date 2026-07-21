@@ -24,8 +24,9 @@ type VoiceProps = {
   supported: boolean
   speaking: boolean
   toggle: () => void
-  speak: (text: string, lang: Lang) => boolean
+  speak: (text: string, lang: Lang, opts?: { force?: boolean }) => boolean
   cancel: () => void
+  prime: () => void
 }
 
 type Props = {
@@ -163,6 +164,7 @@ export default function ChatPanel({
   async function send(textOverride?: string) {
     const text = (textOverride ?? input).trim()
     if (!text || busy) return
+    voice.prime() // Mobile: Audio innerhalb der Nutzer-Geste entsperren
     voice.cancel() // laufende Sprachausgabe stoppen, neue Runde beginnt
     setInput('')
     setNotice(null)

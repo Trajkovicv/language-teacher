@@ -67,14 +67,44 @@ export function useSpeech() {
 
   function pickVoice(bcp: string): SpeechSynthesisVoice | null {
     const voices = speechSynthesis.getVoices()
-    return voices.find((v) => v.lang === bcp) ?? voices.find((v) => v.lang.startsWith(bcp.slice(0, 2))) ?? null
+    const exact = voices.find((v) => v.lang === bcp) ?? voices.find((v) => v.lang.startsWith(bcp.slice(0, 2)))
+    if (exact) return exact
+    // Serbisch: eng verwandte Stimmen klingen fast identisch (gleiche Phonetik)
+    if (bcp.startsWith('sr')) {
+      for (const near of ['hr', 'bs', 'sl']) {
+        const v = voices.find((x) => x.lang.startsWith(near))
+        if (v) return v
+      }
+    }
+    return null
   }
 
-  /** Spricht den Text; false, wenn keine passende Stimme verfügbar ist. */
-  function speak(text: string, lang: Lang): boolean {
+  // Mobile Browser erlauben Sprachausgabe erst nach einem Sprechversuch INNERHALB
+  // einer Nutzer-Geste. prime() wird beim ersten Tippen aufgerufen und entsperrt
+  // die Engine mit einer unhörbaren Mini-Äußerung.
+  const primedRef = useRef(false)
+  function prime() {
+    if (!supported || primedRef.current) return
+    primedRef.current = true
+    try {
+      const u = new SpeechSynthesisUtterance(' ')
+      u.volume = 0
+      speechSynthesis.speak(u)
+      speechSynthesis.resume()
+    } catch {
+      // egal — nächster speak()-Versuch zeigt, ob es klappt
+    }
+  }
+
+  /**
+   * Spricht den Text; false, wenn nichts gesprochen wird.
+   * force=true (z. B. Wörterbuch-Lautsprecher): notfalls mit der Standardstimme
+   * sprechen, statt still zu bleiben.
+   */
+  function speak(text: string, lang: Lang, opts?: { force?: boolean }): boolean {
     if (!supported || !enabled || !text.trim()) return false
     const voice = pickVoice(SPEECH_LANG[lang])
-    if (!voice && lang === 'sr') return false // keine Serbisch-Stimme → still bleiben
+    if (!voice && lang === 'sr' && !opts?.force) return false // Chat: lieber still als falsch
     speechSynthesis.cancel()
     clearTimers()
     boundarySeenRef.current = false
@@ -117,6 +147,7 @@ export function useSpeech() {
     }
     u.onend = finish
     u.onerror = finish
+    speechSynthesis.resume() // Chrome kann in pausiertem Zustand hängen
     speechSynthesis.speak(u)
     return true
   }
@@ -141,7 +172,7 @@ export function useSpeech() {
     })
   }
 
-  return { supported, enabled, speaking, mouth, speak, cancel, toggle }
+  return { supported, enabled, speaking, mouth, speak, cancel, toggle, prime }
 }
 
 // ===== Spracheingabe (STT) — Chrome/Edge: webkitSpeechRecognition =====

@@ -77,6 +77,14 @@ export default function App() {
     localStorage.setItem('lt-theme', theme)
   }, [theme])
 
+  // Mobile Autoplay-Sperre: beim allerersten Tippen die Sprach-Engine entsperren
+  useEffect(() => {
+    const prime = () => voice.prime()
+    window.addEventListener('pointerdown', prime, { once: true, capture: true })
+    return () => window.removeEventListener('pointerdown', prime, { capture: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     fetch(apiUrl('/api/health'))
       .then((r) => r.json())
@@ -223,9 +231,19 @@ export default function App() {
                 toggle: voice.toggle,
                 speak: voice.speak,
                 cancel: voice.cancel,
+                prime: voice.prime,
               }}
             />
-            <DictionaryPanel active={tab === 'dict'} lang={lang} savedWords={savedWords} onToggleSaved={toggleSaved} />
+            <DictionaryPanel
+              active={tab === 'dict'}
+              lang={lang}
+              savedWords={savedWords}
+              onToggleSaved={toggleSaved}
+              onSpeak={(text) => {
+                voice.prime()
+                voice.speak(text, 'sr', { force: true })
+              }}
+            />
             <ExercisePanel active={tab === 'ex'} lang={lang} />
           </section>
         </main>

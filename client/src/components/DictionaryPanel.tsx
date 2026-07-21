@@ -44,10 +44,11 @@ type Props = {
   lang: Lang
   savedWords: readonly string[]
   onToggleSaved: (word: string) => void
+  onSpeak: (text: string) => void
 }
 
 // M4: Wörterbuch-Tab mit Live-Suche über /api/dictionary.
-export default function DictionaryPanel({ active, lang, savedWords, onToggleSaved }: Props) {
+export default function DictionaryPanel({ active, lang, savedWords, onToggleSaved, onSpeak }: Props) {
   const [query, setQuery] = useState('')
   const [entry, setEntry] = useState<DictEntry>(DEMO_ENTRY)
   // Während der Suche angezeigtes Wort — unabhängig vom Eingabefeld,
@@ -114,7 +115,7 @@ export default function DictionaryPanel({ active, lang, savedWords, onToggleSave
           <span className="entry-pos">
             {entry.partOfSpeech} · ћир.: {entry.cyrillic}
           </span>
-          <button className="speak-ic" title="Anhören · Poslušaj (Stimme kommt in Phase 3)" type="button">
+          <button className="speak-ic" title="Anhören · Poslušaj" type="button" onClick={() => onSpeak(entry.word)}>
             <Icon id="i-speaker" />
           </button>
           <button
@@ -170,7 +171,7 @@ export default function DictionaryPanel({ active, lang, savedWords, onToggleSave
                     {ex.note ? <i> ({ex.note})</i> : null}
                   </div>
                 </div>
-                <button className="ex-spk" type="button" title="Anhören (Stimme kommt in Phase 3)">
+                <button className="ex-spk" type="button" title="Anhören · Poslušaj" onClick={() => onSpeak(ex.sr)}>
                   <Icon id="i-speaker" />
                 </button>
               </div>
