@@ -25,6 +25,34 @@ export function getClient(): Anthropic {
  * - Prompt Caching: Breakpoint auf dem System-Prompt und auf der letzten
  *   Nachricht — so wird der Verlauf bei jedem Turn aus dem Cache gelesen.
  */
+/**
+ * Einzelne strukturierte JSON-Antwort (Wörterbuch/Übungen).
+ * output_config.format erzwingt das Schema — kein Prompt-Basteln, kein Parsen-Raten.
+ */
+export async function createJson(opts: {
+  system: string;
+  user: string;
+  schema: Record<string, unknown>;
+}): Promise<unknown> {
+  const res = await getClient().messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: MAX_TOKENS,
+    thinking: { type: 'disabled' },
+    system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
+    messages: [{ role: 'user', content: opts.user }],
+    output_config: { format: { type: 'json_schema', schema: opts.schema } },
+  });
+  const u = res.usage;
+  console.log(
+    `[json] stop=${res.stop_reason} · in=${u.input_tokens} out=${u.output_tokens} cacheRead=${u.cache_read_input_tokens ?? 0} cacheWrite=${u.cache_creation_input_tokens ?? 0}`,
+  );
+  if (res.stop_reason === 'refusal') throw new Error('Anfrage wurde abgelehnt (refusal)');
+  if (res.stop_reason === 'max_tokens') throw new Error('Antwort am Token-Limit abgeschnitten');
+  const text = res.content.find((b) => b.type === 'text')?.text;
+  if (!text) throw new Error('Leere Antwort');
+  return JSON.parse(text);
+}
+
 export function streamChat(opts: { system: string; messages: ChatMessage[] }) {
   const last = opts.messages.length - 1;
   return getClient().messages.stream({

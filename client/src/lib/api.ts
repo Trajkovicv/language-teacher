@@ -42,3 +42,32 @@ export function accessHeaders(): Record<string, string> {
   const code = getAccessCode()
   return code ? { 'X-Access-Code': code } : {}
 }
+
+/**
+ * JSON-POST an die API (Wörterbuch/Übungen). Bei 401 wird einmalig der
+ * Zugangscode erfragt und die Anfrage wiederholt (gleiches Verhalten wie im Chat).
+ */
+export async function postJson<T>(path: string, body: unknown, retried = false): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...accessHeaders() },
+    body: JSON.stringify(body),
+  })
+  if (res.status === 401 && !retried) {
+    const code = window.prompt('Diese App ist geschützt. Zugangscode eingeben:')
+    if (code?.trim()) {
+      setAccessCode(code.trim())
+      return postJson<T>(path, body, true)
+    }
+  }
+  if (!res.ok) {
+    let message: string | undefined
+    try {
+      message = ((await res.json()) as { error?: string }).error
+    } catch {
+      // kein JSON-Body
+    }
+    throw new Error(message ?? `HTTP ${res.status}`)
+  }
+  return (await res.json()) as T
+}

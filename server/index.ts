@@ -2,8 +2,14 @@ import './env.js';
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { CLAUDE_MODEL, streamChat, type ChatMessage } from './claude.js';
-import { isCharacterName, teacherSystemPrompt } from './prompts.js';
+import { CLAUDE_MODEL, createJson, streamChat, type ChatMessage } from './claude.js';
+import {
+  dictionarySystemPrompt,
+  exerciseSystemPrompt,
+  isCharacterName,
+  teacherSystemPrompt,
+  type PrimaryLang,
+} from './prompts.js';
 
 const app = express();
 // Hinter genau einem Reverse-Proxy (Render): sonst wäre req.ip für alle Nutzer
@@ -36,14 +42,18 @@ function requireAccessCode(req: express.Request, res: express.Response, next: ex
   res.status(401).json({ error: 'Zugangscode fehlt oder ist falsch.' });
 }
 
-// Kostenkontrolle: pro IP höchstens 20 Chat-Anfragen pro Minute
-const chatLimiter = rateLimit({
+// Kostenkontrolle: pro IP höchstens 20 KI-Anfragen pro Minute (Chat + Wörterbuch + Übungen gemeinsam)
+const apiLimiter = rateLimit({
   windowMs: 60_000,
   limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Zu viele Anfragen — bitte kurz warten und dann erneut senden.' },
 });
+
+function parsePrimaryLang(value: unknown): PrimaryLang {
+  return value === 'en' || value === 'sr' ? value : 'de';
+}
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -74,7 +84,7 @@ function parseMessages(body: unknown): ChatMessage[] | null {
   return messages;
 }
 
-app.post('/api/chat', requireAccessCode, chatLimiter, (req, res) => {
+app.post('/api/chat', requireAccessCode, apiLimiter, (req, res) => {
   const messages = parseMessages(req.body);
   const character = isCharacterName(req.body?.character) ? req.body.character : 'Mila';
   const pauseMessage = `${character} macht kurz Pause… Versuch es gleich noch einmal.`;
@@ -158,6 +168,141 @@ app.post('/api/chat', requireAccessCode, chatLimiter, (req, res) => {
   });
 
   stream.on('end', finish);
+});
+
+// ============ Wörterbuch (M4) ============
+
+const DICTIONARY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['word', 'phonetic', 'cyrillic', 'partOfSpeech', 'meaning', 'synonyms', 'usageNote', 'examples', 'declension'],
+  properties: {
+    word: { type: 'string' },
+    phonetic: { type: 'string' },
+    cyrillic: { type: 'string' },
+    partOfSpeech: { type: 'string' },
+    meaning: { type: 'string' },
+    synonyms: { type: 'array', items: { type: 'string' } },
+    usageNote: { type: 'string' },
+    examples: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['sr', 'de', 'note'],
+        properties: { sr: { type: 'string' }, de: { type: 'string' }, note: { type: 'string' } },
+      },
+    },
+    declension: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['case', 'form', 'example'],
+        properties: { case: { type: 'string' }, form: { type: 'string' }, example: { type: 'string' } },
+      },
+    },
+  },
+} as const;
+
+app.post('/api/dictionary', requireAccessCode, apiLimiter, async (req, res) => {
+  const word = typeof req.body?.word === 'string' ? req.body.word.trim() : '';
+  const primaryLang = parsePrimaryLang(req.body?.primaryLang);
+  if (!word || word.length > 60) {
+    res.status(400).json({ error: 'Bitte ein Suchwort mit höchstens 60 Zeichen eingeben.' });
+    return;
+  }
+  try {
+    const entry = await createJson({
+      system: dictionarySystemPrompt(primaryLang),
+      user: `Suchwort: ${word}`,
+      schema: DICTIONARY_SCHEMA as unknown as Record<string, unknown>,
+    });
+    res.json(entry);
+  } catch (err) {
+    console.error('[dictionary] Fehler:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'Das Wörterbuch macht kurz Pause… Versuch es gleich noch einmal.' });
+  }
+});
+
+// ============ Übungen (M5) ============
+
+const EXERCISE_SCHEMA = {
+  anyOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['type', 'question', 'options', 'correctIndex', 'feedbackCorrect', 'feedbackWrong'],
+      properties: {
+        type: { const: 'mc' },
+        question: { type: 'string' },
+        options: { type: 'array', items: { type: 'string' } },
+        correctIndex: { type: 'integer' },
+        feedbackCorrect: { type: 'string' },
+        feedbackWrong: { type: 'string' },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['type', 'question', 'bank', 'correctWord', 'feedbackCorrect', 'feedbackWrong'],
+      properties: {
+        type: { const: 'blank' },
+        question: { type: 'string' },
+        bank: { type: 'array', items: { type: 'string' } },
+        correctWord: { type: 'string' },
+        feedbackCorrect: { type: 'string' },
+        feedbackWrong: { type: 'string' },
+      },
+    },
+  ],
+} as const;
+
+type Exercise =
+  | { type: 'mc'; question: string; options: string[]; correctIndex: number; feedbackCorrect: string; feedbackWrong: string }
+  | { type: 'blank'; question: string; bank: string[]; correctWord: string; feedbackCorrect: string; feedbackWrong: string };
+
+/** Schema garantiert die Form — hier nur noch die inhaltliche Konsistenz prüfen. */
+function validateExercise(raw: unknown): Exercise | null {
+  const ex = raw as Exercise;
+  if (ex.type === 'mc') {
+    if (ex.options.length < 2 || ex.options.length > 5) return null;
+    if (!Number.isInteger(ex.correctIndex) || ex.correctIndex < 0 || ex.correctIndex >= ex.options.length) return null;
+    return ex;
+  }
+  if (ex.type === 'blank') {
+    if (ex.bank.length < 2 || ex.bank.length > 6) return null;
+    if (!ex.bank.includes(ex.correctWord)) return null;
+    if (!ex.question.includes('___')) return null;
+    return ex;
+  }
+  return null;
+}
+
+app.post('/api/exercise', requireAccessCode, apiLimiter, async (req, res) => {
+  const type = req.body?.type === 'blank' ? 'blank' : 'mc';
+  const topic = typeof req.body?.topic === 'string' ? req.body.topic.trim().slice(0, 200) : '';
+  const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim().slice(0, 200) : '';
+  const primaryLang = parsePrimaryLang(req.body?.primaryLang);
+
+  const wish = prompt || topic || 'Alltags-Grundwortschatz für Anfänger';
+  try {
+    const raw = await createJson({
+      system: exerciseSystemPrompt(primaryLang),
+      user: `Übungstyp: ${type}\nThema/Wunsch: ${wish}`,
+      schema: EXERCISE_SCHEMA as unknown as Record<string, unknown>,
+    });
+    const exercise = validateExercise(raw);
+    if (!exercise || exercise.type !== type) {
+      console.error('[exercise] inkonsistente Modell-Antwort:', JSON.stringify(raw).slice(0, 300));
+      res.status(502).json({ error: 'Die Übung ist nicht geglückt… Versuch es gleich noch einmal.' });
+      return;
+    }
+    res.json(exercise);
+  } catch (err) {
+    console.error('[exercise] Fehler:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'Die Übung ist nicht geglückt… Versuch es gleich noch einmal.' });
+  }
 });
 
 app.listen(PORT, () => {
