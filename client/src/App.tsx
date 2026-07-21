@@ -271,6 +271,8 @@ export default function App() {
                 // Mit Server-Stimmen funktioniert Ton auch ohne Browser-TTS
                 supported: voice.supported || health?.tts === true,
                 srVoiceMissing: voice.srVoiceMissing,
+                speed: voice.speed,
+                cycleSpeed: voice.cycleSpeed,
                 speaking: voice.speaking,
                 toggle: voice.toggle,
                 speak: speakAs,

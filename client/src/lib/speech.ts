@@ -13,6 +13,7 @@ const SPEECH_LANG: Record<Lang, string> = { de: 'de-DE', en: 'en-US', sr: 'sr-RS
 /** Mundformen für die Gratis-Lippensynchronisation (kein externes Konto nötig). */
 export type MouthShape = 'rest' | 'closed' | 'small' | 'open' | 'round'
 export type VoiceGender = 'female' | 'male'
+export type VoiceSpeed = 1 | 1.5 | 2
 /** explicit=true: der Nutzer hat GEZIELT aufs Anhören getippt — spricht auch bei „Ton aus". */
 export type SpeakOpts = { force?: boolean; gender?: VoiceGender; explicit?: boolean }
 
@@ -136,6 +137,29 @@ export function useSpeech(serverTts: boolean) {
       return true
     }
   })
+  // Sprechtempo 1× / 1,5× / 2× (Nutzer-Wunsch), persistiert
+  const [speed, setSpeed] = useState<VoiceSpeed>(() => {
+    try {
+      const s = Number(localStorage.getItem('lt-voice-speed'))
+      return s === 1.5 || s === 2 ? s : 1
+    } catch {
+      return 1
+    }
+  })
+  const speedRef = useRef<VoiceSpeed>(speed)
+  speedRef.current = speed
+
+  function cycleSpeed() {
+    setSpeed((prev) => {
+      const next: VoiceSpeed = prev === 1 ? 1.5 : prev === 1.5 ? 2 : 1
+      try {
+        localStorage.setItem('lt-voice-speed', String(next))
+      } catch {
+        // Speichern optional
+      }
+      return next
+    })
+  }
 
   /** Nur die Mundform-Timer — der resume-Heartbeat lebt weiter (Chrome-15-s-Bug). */
   function clearMouthTimers() {
@@ -272,7 +296,7 @@ export function useSpeech(serverTts: boolean) {
       const res = await fetch(apiUrl('/api/tts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...accessHeaders() },
-        body: JSON.stringify({ text, lang, gender }),
+        body: JSON.stringify({ text, lang, gender, speed: speedRef.current }),
         signal: controller.signal,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -324,7 +348,7 @@ export function useSpeech(serverTts: boolean) {
     const u = new SpeechSynthesisUtterance(text)
     if (voice) u.voice = voice
     u.lang = SPEECH_LANG[lang]
-    u.rate = 0.95 // leicht gedrosselt — Unterricht
+    u.rate = Math.min(2, 0.95 * speedRef.current) // Grundtempo leicht gedrosselt × Nutzer-Tempo
 
     u.onstart = () => {
       if (gen !== genRef.current) return
@@ -401,7 +425,7 @@ export function useSpeech(serverTts: boolean) {
     const u = new SpeechSynthesisUtterance(text)
     if (voice) u.voice = voice
     u.lang = SPEECH_LANG[lang]
-    u.rate = 0.95
+    u.rate = Math.min(2, 0.95 * speedRef.current)
     u.onstart = () => {
       if (gen !== genRef.current) return
       boundarySeenRef.current = false
@@ -460,7 +484,7 @@ export function useSpeech(serverTts: boolean) {
     const url = fetch(apiUrl('/api/tts'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...accessHeaders() },
-      body: JSON.stringify({ text, lang, gender }),
+      body: JSON.stringify({ text, lang, gender, speed: speedRef.current }),
       signal: ctl.signal,
     })
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -656,7 +680,22 @@ export function useSpeech(serverTts: boolean) {
     return lines.join('\n')
   }
 
-  return { supported, enabled, speaking, mouth, srVoiceMissing, speak, speakStream, endSpeakStream, cancel, toggle, prime, diagnostics }
+  return {
+    supported,
+    enabled,
+    speaking,
+    mouth,
+    srVoiceMissing,
+    speed,
+    cycleSpeed,
+    speak,
+    speakStream,
+    endSpeakStream,
+    cancel,
+    toggle,
+    prime,
+    diagnostics,
+  }
 }
 
 // ===== Spracheingabe (STT) — Chrome/Edge: webkitSpeechRecognition =====

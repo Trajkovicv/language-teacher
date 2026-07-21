@@ -3,7 +3,37 @@ import Bilingual from './Bilingual'
 import { Icon } from './Icons'
 import MultipleChoice from './MultipleChoice'
 import { postJson } from '../lib/api'
+import { countByLevel, exercisesForLevel, type ExLevel, type LibraryExercise } from '../data/exercises'
 import type { Lang } from '../lib/i18n'
+
+const LEVELS: readonly ExLevel[] = ['B1', 'B2', 'C1']
+const LEVEL_COUNTS = countByLevel()
+
+function loadLibProgress(): Record<ExLevel, number> {
+  try {
+    const raw = JSON.parse(localStorage.getItem('lt-exlib') ?? '{}') as Partial<Record<ExLevel, number>>
+    return { B1: raw.B1 || 0, B2: raw.B2 || 0, C1: raw.C1 || 0 }
+  } catch {
+    return { B1: 0, B2: 0, C1: 0 }
+  }
+}
+
+function loadLibLevel(): ExLevel {
+  try {
+    const l = localStorage.getItem('lt-exlib-level')
+    return l === 'B2' || l === 'C1' ? l : 'B1'
+  } catch {
+    return 'B1'
+  }
+}
+
+/** Bibliotheks-Übung → Anzeige-Übung in der gewünschten Sprache (de/en). */
+function localize(ex: LibraryExercise, ui: 'de' | 'en'): Exercise {
+  const base = { question: ex.q[ui], feedbackCorrect: ex.fbOk[ui], feedbackWrong: ex.fbNo[ui] }
+  return ex.type === 'mc'
+    ? { type: 'mc', options: ex.options, correctIndex: ex.correctIndex, ...base }
+    : { type: 'blank', bank: ex.bank, correctWord: ex.correctWord, ...base }
+}
 
 export type Exercise =
   | { type: 'mc'; question: string; options: string[]; correctIndex: number; feedbackCorrect: string; feedbackWrong: string }
@@ -53,6 +83,40 @@ export default function ExercisePanel({ active, lang }: Props) {
   const [exercise, setExercise] = useState<Exercise | null>(null)
   const [exerciseKey, setExerciseKey] = useState(0)
   const [doneToday, setDoneToday] = useState(0)
+
+  // Übungsbibliothek (100 kuratierte Übungen B1–C1, keine API-Kosten)
+  const [libLevel, setLibLevel] = useState<ExLevel>(loadLibLevel)
+  const [libIdx, setLibIdx] = useState<Record<ExLevel, number>>(loadLibProgress)
+  const [libKey, setLibKey] = useState(0) // remountet die Antwort-Ansicht beim Blättern
+  const uiLang: 'de' | 'en' = lang === 'en' ? 'en' : 'de'
+  const libList = exercisesForLevel(libLevel)
+  const libPos = Math.min(libIdx[libLevel], libList.length - 1)
+  const libEx = libList[libPos]
+
+  function saveLibIdx(next: Record<ExLevel, number>) {
+    setLibIdx(next)
+    try {
+      localStorage.setItem('lt-exlib', JSON.stringify(next))
+    } catch {
+      // Speichern optional
+    }
+  }
+
+  function libGo(delta: number) {
+    const next = Math.min(Math.max(libPos + delta, 0), libList.length - 1)
+    saveLibIdx({ ...libIdx, [libLevel]: next })
+    setLibKey((k) => k + 1)
+  }
+
+  function pickLevel(l: ExLevel) {
+    setLibLevel(l)
+    setLibKey((k) => k + 1)
+    try {
+      localStorage.setItem('lt-exlib-level', l)
+    } catch {
+      // Speichern optional
+    }
+  }
 
   async function generate(type: 'mc' | 'blank', wish: { topic?: string; prompt?: string }) {
     if (loading) return
@@ -205,19 +269,75 @@ export default function ExercisePanel({ active, lang }: Props) {
           </div>
         )}
 
-        {!exercise && (
-          <div className="live-ex">
-            <span className="tag">
-              <Icon id="i-check" className="tag-ico" />
-              Beispiel · Multiple Choice
-            </span>
-            <div className="q">
-              Wie sagt man „<b>Guten Abend</b>"? ·{' '}
-              <span style={{ color: 'var(--brand-ink)' }}>Kako se kaže „dobro veče"?</span>
+        {/* ===== Übungsbibliothek: 100 kuratierte Übungen B1–C1 ===== */}
+        <div className="exlib">
+          <div className="exlib-head">
+            <h4>
+              📚 Übungsbibliothek · <span style={{ color: 'var(--brand-ink)' }}>Zbirka vežbi</span>
+            </h4>
+            <div className="exlib-levels">
+              {LEVELS.map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  className={libLevel === l ? 'lvl active' : 'lvl'}
+                  onClick={() => pickLevel(l)}
+                  title={`${LEVEL_COUNTS[l]} Übungen · vežbi`}
+                >
+                  {l}
+                </button>
+              ))}
             </div>
-            <MultipleChoice options={['Dobro jutro', 'Dobro veče', 'Dobar dan']} correctIndex={1} />
           </div>
-        )}
+          {libEx && (
+            <div className="live-ex" style={{ marginBottom: 0 }}>
+              <div className="exlib-meta">
+                <span className="tag">
+                  <Icon id={libEx.type === 'blank' ? 'i-doc' : 'i-check'} className="tag-ico" />
+                  {libEx.topic[uiLang]}
+                </span>
+                <span className="exlib-count">
+                  {uiLang === 'en' ? 'Exercise' : 'Übung'} {libPos + 1}/{libList.length} · {libLevel}
+                </span>
+              </div>
+              {libEx.type === 'blank' ? (
+                <ClozeCard key={`${libLevel}-${libPos}-${libKey}`} ex={localize(libEx, uiLang) as Extract<Exercise, { type: 'blank' }>} />
+              ) : (
+                <>
+                  <div className="q">{libEx.q[uiLang]}</div>
+                  <MultipleChoice
+                    key={`${libLevel}-${libPos}-${libKey}`}
+                    options={libEx.options}
+                    correctIndex={libEx.correctIndex}
+                    feedbackCorrect={libEx.fbOk[uiLang]}
+                    feedbackWrong={libEx.fbNo[uiLang]}
+                  />
+                </>
+              )}
+              <div className="exlib-nav">
+                <button type="button" className="dict-btn" onClick={() => libGo(-1)} disabled={libPos === 0}>
+                  ← {uiLang === 'en' ? 'Back' : 'Zurück'}
+                </button>
+                {libPos < libList.length - 1 ? (
+                  <button type="button" className="btn" onClick={() => libGo(1)}>
+                    {uiLang === 'en' ? 'Next' : 'Weiter'} →
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      saveLibIdx({ ...libIdx, [libLevel]: 0 })
+                      setLibKey((k) => k + 1)
+                    }}
+                  >
+                    {uiLang === 'en' ? 'Start over' : 'Von vorn'} ↻
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

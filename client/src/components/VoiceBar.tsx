@@ -1,4 +1,5 @@
 import type { MicZone } from '../lib/mic'
+import type { VoiceSpeed } from '../lib/speech'
 
 type Props = {
   characterName: string
@@ -10,7 +11,9 @@ type Props = {
   interim: string
   voiceEnabled: boolean
   voiceSupported: boolean
+  voiceSpeed: VoiceSpeed
   onVoiceToggle: () => void
+  onSpeedToggle: () => void
 }
 
 const ZONE_HINT: Record<MicZone, string> = {
@@ -31,7 +34,9 @@ export default function VoiceBar({
   interim,
   voiceEnabled,
   voiceSupported,
+  voiceSpeed,
   onVoiceToggle,
+  onSpeedToggle,
 }: Props) {
   const state = mode === 'user' ? 'user' : mode === 'teacher' ? 'mila' : 'idle'
 
@@ -81,15 +86,27 @@ export default function VoiceBar({
       {mode === 'user' || micError ? (
         <span className={hintClass}>{hint}</span>
       ) : (
-        <button
-          type="button"
-          className={`${hintClass} vhint-btn`}
-          onClick={onVoiceToggle}
-          disabled={!voiceSupported}
-          title={voiceSupported ? 'Stimme an/aus · Zvuk' : 'Keine Browser-Stimme verfügbar'}
-        >
-          {voiceSupported ? hint : '🔇 Keine Stimme'}
-        </button>
+        <span className="vctrl">
+          {voiceSupported && voiceEnabled && (
+            <button
+              type="button"
+              className="vhint vhint-btn vspeed"
+              onClick={onSpeedToggle}
+              title="Sprechtempo · Brzina govora"
+            >
+              ⏩ {voiceSpeed === 1 ? '1×' : voiceSpeed === 1.5 ? '1,5×' : '2×'}
+            </button>
+          )}
+          <button
+            type="button"
+            className={`${hintClass} vhint-btn`}
+            onClick={onVoiceToggle}
+            disabled={!voiceSupported}
+            title={voiceSupported ? 'Stimme an/aus · Zvuk' : 'Keine Browser-Stimme verfügbar'}
+          >
+            {voiceSupported ? hint : '🔇 Keine Stimme'}
+          </button>
+        </span>
       )}
     </div>
   )

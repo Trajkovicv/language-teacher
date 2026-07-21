@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "dev:alt": "cross-env SERVER_PORT=3101 vite --port 5273 --strictPort"
+    "dev:alt": "cross-env SERVER_PORT=3101 vite --port 5273 --strictPort",
+    "check:exercises": "node scripts/check-exercises.mjs"
   },
   "dependencies": {
     "react": "^19.2.7",

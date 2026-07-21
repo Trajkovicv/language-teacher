@@ -12,7 +12,7 @@ import {
   type ChatMessage,
   type ContentBlock,
 } from './claude.js';
-import { synthesize, ttsConfigured, type TtsGender, type TtsLang } from './tts.js';
+import { synthesize, ttsConfigured, type TtsGender, type TtsLang, type TtsSpeed } from './tts.js';
 import {
   dictionarySystemPrompt,
   exerciseSystemPrompt,
@@ -336,12 +336,13 @@ app.post('/api/tts', ttsLimiter, requireAccessCode, jsonSmall, async (req, res) 
   const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
   const lang: TtsLang = req.body?.lang === 'en' || req.body?.lang === 'sr' ? req.body.lang : 'de';
   const gender: TtsGender = req.body?.gender === 'male' ? 'male' : 'female';
+  const speed: TtsSpeed = req.body?.speed === 1.5 || req.body?.speed === 2 ? req.body.speed : 1;
   if (!text || text.length > MAX_TTS_CHARS) {
     res.status(400).json({ error: `Text fehlt oder ist länger als ${MAX_TTS_CHARS} Zeichen.` });
     return;
   }
   try {
-    const audio = await synthesize(text, lang, gender);
+    const audio = await synthesize(text, lang, gender, speed);
     res.set('Content-Type', 'audio/mpeg');
     res.send(audio);
   } catch (err) {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { streamSSE, SSERequestError } from '../lib/sse'
 import { apiUrl, accessHeaders, setAccessCode } from '../lib/api'
-import { useRecognition, type SpeakOpts } from '../lib/speech'
+import { useRecognition, type SpeakOpts, type VoiceSpeed } from '../lib/speech'
 import { clearMemory, getProfile, hasMemory, noteExchange } from '../lib/memory'
 import { detectLang } from '../lib/langdetect'
 import { Icon } from './Icons'
@@ -111,6 +111,8 @@ type VoiceProps = {
   supported: boolean
   speaking: boolean
   srVoiceMissing: boolean
+  speed: VoiceSpeed
+  cycleSpeed: () => void
   toggle: () => void
   speak: (text: string, lang: Lang, opts?: SpeakOpts) => boolean
   speakStream: (text: string, lang: Lang, opts?: SpeakOpts) => boolean
@@ -693,7 +695,9 @@ export default function ChatPanel({
         interim={rec.interim}
         voiceEnabled={voice.enabled}
         voiceSupported={voice.supported}
+        voiceSpeed={voice.speed}
         onVoiceToggle={voice.toggle}
+        onSpeedToggle={voice.cycleSpeed}
       />
 
       {/* Profi-Diktat: Aufnahme-Leiste — pausieren/weitersprechen, senden erst per Knopf */}

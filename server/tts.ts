@@ -14,6 +14,7 @@ import './env.js';
 
 export type TtsLang = 'de' | 'en' | 'sr';
 export type TtsGender = 'female' | 'male';
+export type TtsSpeed = 1 | 1.5 | 2;
 
 const AZURE_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_REGION = process.env.AZURE_SPEECH_REGION; // z. B. "westeurope"
@@ -77,19 +78,22 @@ function cacheSet(key: string, buf: Buffer): void {
   }
 }
 
-export async function synthesize(text: string, lang: TtsLang, gender: TtsGender): Promise<Buffer> {
+export async function synthesize(text: string, lang: TtsLang, gender: TtsGender, speed: TtsSpeed = 1): Promise<Buffer> {
   if (!ttsConfigured()) throw new Error('TTS nicht konfiguriert');
 
   const voice = pickVoice(text, lang, gender);
-  const key = `${voice}|${text}`;
+  const key = `${voice}|${speed}|${text}`;
   const hit = cacheGet(key);
   if (hit) return hit;
 
   const locale = voice.split('-').slice(0, -1).join('-');
-  // Leicht gedrosseltes Tempo — Unterricht (SSML prosody)
+  // Grundtempo leicht gedrosselt (Unterricht) × Nutzer-Tempo 1/1.5/2:
+  // 1 → -8 %, 1.5 → +38 %, 2 → +84 % (SSML-prosody, relativ zur Normalrate)
+  const percent = Math.round(92 * speed) - 100;
+  const rate = `${percent >= 0 ? '+' : ''}${percent}%`;
   const ssml =
     `<speak version='1.0' xml:lang='${locale}'>` +
-    `<voice name='${voice}'><prosody rate='-8%'>${escapeXml(text)}</prosody></voice></speak>`;
+    `<voice name='${voice}'><prosody rate='${rate}'>${escapeXml(text)}</prosody></voice></speak>`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
