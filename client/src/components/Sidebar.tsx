@@ -1,5 +1,7 @@
 import Bilingual from './Bilingual'
+import AvatarStage from './AvatarStage'
 import type { Lang } from '../lib/i18n'
+import type { MouthShape } from '../lib/speech'
 
 export type CharacterId = 'mila' | 'luka' | 'ana'
 export type Character = { id: CharacterId; name: string; mark: string }
@@ -14,6 +16,7 @@ type Props = {
   character: Character
   onSelect: (c: Character) => void
   voiceState: 'teacher' | 'user' | 'idle'
+  mouth: MouthShape
   lang: Lang
   stats: { minutes: number; words: number; streak: number }
 }
@@ -24,19 +27,11 @@ type Props = {
  * Fotos werden bewusst nicht mehr verwendet; in Phase 3 wird die Bühne durch
  * den Simli-Live-Video-Avatar ersetzt (<video> an gleicher Stelle).
  */
-export default function Sidebar({ character, onSelect, voiceState, lang, stats }: Props) {
-  const ringClass =
-    voiceState === 'teacher' ? 'stage-av speaking' : voiceState === 'user' ? 'stage-av user-speaking' : 'stage-av'
-
+export default function Sidebar({ character, onSelect, voiceState, mouth, lang, stats }: Props) {
   return (
     <aside>
       <div className="hero">
-        <div className={ringClass}>
-          <svg className="floaty" viewBox="0 0 300 360">
-            <use href={`#sym-${character.id}`} />
-          </svg>
-          <div className="spk-ring" />
-        </div>
+        <AvatarStage characterId={character.id} mouth={mouth} voiceState={voiceState} />
         <div className="hero-info">
           <div className="hero-name">{character.name}</div>
           <div className="status">

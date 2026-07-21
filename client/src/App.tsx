@@ -193,6 +193,7 @@ export default function App() {
             character={character}
             onSelect={setCharacter}
             voiceState={voiceState}
+            mouth={voice.mouth}
             lang={lang}
             stats={{ minutes, words: savedWords.length, streak }}
           />

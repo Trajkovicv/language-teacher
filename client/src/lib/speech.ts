@@ -6,9 +6,31 @@ import type { Lang } from './i18n'
 // (kommt in Phase 3 über Azure TTS, das auch Latinica+Ćirilica spricht).
 const SPEECH_LANG: Record<Lang, string> = { de: 'de-DE', en: 'en-US', sr: 'sr-RS' }
 
+/** Mundformen für die Gratis-Lippensynchronisation (kein externes Konto nötig). */
+export type MouthShape = 'rest' | 'closed' | 'small' | 'open' | 'round'
+
+/** Vokale eines Wortes → Sequenz von Mundformen (max. 5 pro Wort). */
+function visemesForWord(word: string): MouthShape[] {
+  const w = word.toLowerCase()
+  const shapes: MouthShape[] = []
+  if (/^[mbp]/.test(w)) shapes.push('closed')
+  for (const ch of w) {
+    if ('aáä'.includes(ch)) shapes.push('open')
+    else if ('oóuúöü'.includes(ch)) shapes.push('round')
+    else if ('eéiíy'.includes(ch)) shapes.push('small')
+  }
+  if (shapes.length === 0) shapes.push('small')
+  return shapes.slice(0, 5)
+}
+
+const VISEME_MS = 110
+
 export function useSpeech() {
   const supported = typeof window !== 'undefined' && 'speechSynthesis' in window
   const [speaking, setSpeaking] = useState(false)
+  const [mouth, setMouth] = useState<MouthShape>('rest')
+  const timersRef = useRef<number[]>([])
+  const boundarySeenRef = useRef(false)
   const [enabled, setEnabled] = useState(() => {
     try {
       return localStorage.getItem('lt-voice') !== 'off'
@@ -16,6 +38,20 @@ export function useSpeech() {
       return true
     }
   })
+
+  function clearTimers() {
+    timersRef.current.forEach((t) => clearTimeout(t))
+    timersRef.current = []
+  }
+
+  function scheduleShapes(shapes: MouthShape[], closeAfter: boolean) {
+    shapes.forEach((s, i) => {
+      timersRef.current.push(window.setTimeout(() => setMouth(s), i * VISEME_MS))
+    })
+    if (closeAfter) {
+      timersRef.current.push(window.setTimeout(() => setMouth('closed'), shapes.length * VISEME_MS))
+    }
+  }
 
   // Stimmenliste lädt asynchron — einmal anstoßen, damit getVoices() gefüllt ist
   useEffect(() => {
@@ -40,19 +76,55 @@ export function useSpeech() {
     const voice = pickVoice(SPEECH_LANG[lang])
     if (!voice && lang === 'sr') return false // keine Serbisch-Stimme → still bleiben
     speechSynthesis.cancel()
+    clearTimers()
+    boundarySeenRef.current = false
     const u = new SpeechSynthesisUtterance(text)
     if (voice) u.voice = voice
     u.lang = SPEECH_LANG[lang]
     u.rate = 0.95 // leicht gedrosselt — Unterricht
-    u.onstart = () => setSpeaking(true)
-    u.onend = () => setSpeaking(false)
-    u.onerror = () => setSpeaking(false)
+
+    u.onstart = () => {
+      setSpeaking(true)
+      // Fallback-Rhythmus, falls die Stimme keine Wort-Grenz-Events liefert:
+      // pseudozufällige Mundformen im Sprechtakt
+      timersRef.current.push(
+        window.setTimeout(function rhythm() {
+          if (boundarySeenRef.current) return
+          const cycle: MouthShape[] = ['open', 'small', 'round', 'small', 'closed']
+          let i = 0
+          const tick = () => {
+            if (boundarySeenRef.current) return
+            setMouth(cycle[i % cycle.length])
+            i++
+            timersRef.current.push(window.setTimeout(tick, VISEME_MS + ((i * 37) % 40)))
+          }
+          tick()
+        }, 350),
+      )
+    }
+    // Wort-Grenze: Mundformen aus den Vokalen des gerade gesprochenen Wortes
+    u.onboundary = (e) => {
+      if (typeof e.charIndex !== 'number') return
+      boundarySeenRef.current = true
+      clearTimers()
+      const word = text.slice(e.charIndex).match(/^\S+/)?.[0] ?? ''
+      scheduleShapes(visemesForWord(word), true)
+    }
+    const finish = () => {
+      clearTimers()
+      setMouth('rest')
+      setSpeaking(false)
+    }
+    u.onend = finish
+    u.onerror = finish
     speechSynthesis.speak(u)
     return true
   }
 
   function cancel() {
     if (supported) speechSynthesis.cancel()
+    clearTimers()
+    setMouth('rest')
     setSpeaking(false)
   }
 
@@ -69,7 +141,7 @@ export function useSpeech() {
     })
   }
 
-  return { supported, enabled, speaking, speak, cancel, toggle }
+  return { supported, enabled, speaking, mouth, speak, cancel, toggle }
 }
 
 // ===== Spracheingabe (STT) — Chrome/Edge: webkitSpeechRecognition =====

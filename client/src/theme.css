@@ -286,6 +286,11 @@ table.decl td:first-child{font-weight:700}table.decl td:last-child{color:var(--i
 .voicebar[data-state="idle"] .wave i{animation:none;transform:scaleY(.35)}
 /* Voice-Bar: echter Mikrofonpegel — Balken werden per Inline-Transform gesteuert */
 .wave.live i{animation:none;transition:transform .07s linear}
+/* Avatar-Lippensynchronisation (Gratis-Variante) */
+.av-overlay{position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+.lids{opacity:0;animation:blink 5.2s infinite}
+.stage-av svg.talking{animation:talkhead 1.6s ease-in-out infinite}
+@keyframes talkhead{0%,100%{transform:rotate(0deg) translateY(0)}30%{transform:rotate(.7deg) translateY(-2px)}70%{transform:rotate(-.6deg) translateY(-1px)}}
 /* Ton-an/aus als Button (gleiche Optik wie der vhint-Text) */
 .vhint-btn{border:none;background:transparent;cursor:pointer;font-family:inherit;padding:0}
 .vhint-btn:disabled{cursor:default;opacity:.6}

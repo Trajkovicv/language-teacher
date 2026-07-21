@@ -66,12 +66,13 @@ Health: http://localhost:3001/api/health
    GitHub-Konto → Repo `language-teacher` (public) → push → Render-Blueprint
    (Key + ACCESS_CODE + CLIENT_ORIGINS) → Pages aktivieren + Repo-Variable
    `API_BASE_URL` → am Handy installieren.
-3. **Phase 3a — Simli-Video-Avatar (FaceTime-Look, Nutzer-Wunsch!):**
-   Nutzer legt Simli-Konto an (Gratis-Minuten + 10 $ Startguthaben),
-   `SIMLI_API_KEY` in `.env`/Render; Server-Endpunkt für Session-Token bauen;
-   in `Sidebar.tsx` ersetzt das Simli-`<video>` die SVG-Bühne (Struktur dafür
-   vorbereitet). Stock-/Kunstgesichter für Luka + Ana; Mila bleibt illustriert (Regel 1).
-   Audio-Quelle: erst Azure TTS (3b), Simli lippensynct audio-agnostisch.
+3. **Avatar: Gratis-Lippensync ist GEBAUT (M7b, Nutzer-Entscheid).**
+   `AvatarStage.tsx` + `lib/speech.ts`: Mundformen aus Wort-Grenz-Events der
+   Browser-TTS (Visem-Mapping a→offen, o/u→rund, e/i→schmal, m/b/p→zu;
+   Fallback-Rhythmus ohne Boundary-Events), Blinzeln, Kopfbewegung. E2E-getestet.
+   **Simli ist nur noch OPTIONAL** („Wow-Upgrade"): falls der Nutzer später die
+   Gratis-Minuten testen will → Konto + `SIMLI_API_KEY`, `<video>` ersetzt die
+   Bühne. Kunstgesichter für Luka/Ana; Mila bleibt illustriert (Regel 1).
 4. **Phase 3b — Azure TTS F0** (gratis 500k Zeichen/Monat): echte Serbisch-Stimmen
    (Latinica+Ćirilica), ersetzt Browser-TTS in `lib/speech.ts` (Provider-Abstraktion),
    liefert Visem-Events. Nutzer braucht Azure-Konto.
