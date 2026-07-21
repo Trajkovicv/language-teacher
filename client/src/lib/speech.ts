@@ -33,6 +33,44 @@ function visemesForWord(word: string): MouthShape[] {
 const VISEME_MS = 110
 const MAX_SPEAK_CHARS = 1900 // Server-Limit 2000; Antworten sind ohnehin kürzer
 
+/**
+ * Text fürs Vorlesen säubern: Emojis, Markdown-Reste und Aufzählungszeichen
+ * würden sonst mitgesprochen („Sternchen", „lachendes Gesicht") — der größte
+ * einzelne Qualitätskiller bei Browser-Stimmen.
+ */
+export function cleanForSpeech(text: string): string {
+  return text
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{1F1E6}-\u{1F1FF}]/gu, ' ')
+    .replace(/[*_#`~]/g, '')
+    .replace(/^[-•>]\s+/gm, '')
+    .replace(/[„“”«»"]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+// ===== Stimmen-Qualitäts-Ranking =====
+// Browser liefern oft mehrere Stimmen pro Sprache — von uralten Roboter-
+// Stimmen bis zu neuronalen Cloud-Stimmen (Edge „Online (Natural)", Chrome
+// „Google …", iOS „Enhanced/Premium"). Immer die beste nehmen!
+function voiceQuality(v: SpeechSynthesisVoice): number {
+  const n = v.name.toLowerCase()
+  let q = 0
+  if (n.includes('natural')) q += 10
+  if (n.includes('neural')) q += 8
+  if (n.includes('premium')) q += 7
+  if (n.includes('enhanced')) q += 6
+  if (n.includes('google')) q += 6
+  if (n.includes('siri')) q += 5
+  if (!v.localService) q += 2 // Cloud-Stimmen klingen meist deutlich besser
+  if (n.includes('espeak')) q -= 8
+  if (n.includes('compact')) q -= 4
+  return q
+}
+
+// Passendes Stimm-Geschlecht zum Charakter (best effort über bekannte Namen)
+const FEMALE_NAMES = /katja|hedda|anna|petra|vicki|marlene|zira|jenny|aria|michelle|samantha|karen|moira|sophie|gabrijela|lana|elvira|amala|seraphina|louisa/
+const MALE_NAMES = /conrad|stefan|klaus|guy|david|mark|ryan|daniel|alex|fred|nicholas|srecko|srećko|florian|killian/
+
 // ===== Diagnose-Protokoll (Tap auf die Versionsnummer zeigt es an) =====
 
 const diagLog: string[] = []
@@ -151,18 +189,26 @@ export function useSpeech(serverTts: boolean) {
     }
   }, [supported])
 
-  function pickVoice(bcp: string): SpeechSynthesisVoice | null {
-    const voices = speechSynthesis.getVoices()
-    const exact = voices.find((v) => v.lang === bcp) ?? voices.find((v) => v.lang.startsWith(bcp.slice(0, 2)))
-    if (exact) return exact
+  function pickVoice(bcp: string, gender: VoiceGender = 'female'): SpeechSynthesisVoice | null {
+    const all = speechSynthesis.getVoices()
+    const family = bcp.slice(0, 2).toLowerCase()
+    let candidates = all.filter((v) => v.lang.toLowerCase().startsWith(family))
     // Serbisch: eng verwandte Stimmen klingen fast identisch (gleiche Phonetik)
-    if (bcp.startsWith('sr')) {
+    if (candidates.length === 0 && bcp.startsWith('sr')) {
       for (const near of ['hr', 'bs', 'sl']) {
-        const v = voices.find((x) => x.lang.startsWith(near))
-        if (v) return v
+        candidates = all.filter((v) => v.lang.toLowerCase().startsWith(near))
+        if (candidates.length > 0) break
       }
     }
-    return null
+    if (candidates.length === 0) return null
+    const score = (v: SpeechSynthesisVoice) => {
+      let s = voiceQuality(v)
+      if (v.lang.toLowerCase() === bcp.toLowerCase()) s += 3 // exakte Region
+      const n = v.name.toLowerCase()
+      if (gender === 'female' ? FEMALE_NAMES.test(n) : MALE_NAMES.test(n)) s += 2
+      return s
+    }
+    return [...candidates].sort((a, b) => score(b) - score(a))[0]
   }
 
   // Mobile Browser erlauben Audio erst nach einer Nutzer-Geste. prime() wird beim
@@ -251,14 +297,14 @@ export function useSpeech(serverTts: boolean) {
       if (controller.signal.aborted || gen !== genRef.current) return
       logDiag(`Server-Stimme fehlgeschlagen (${err instanceof Error ? err.message : err}) → Browser-Stimme`)
       // Ton nicht einfach verschlucken: Browser-Stimme als Notnagel
-      if (!speakViaBrowser(text, lang, true, gen)) finish(gen)
+      if (!speakViaBrowser(text, lang, true, gen, gender)) finish(gen)
     }
   }
 
   /** Weg 2: Browser-Stimme (Web Speech API) mit iOS/Chrome-Härtung. */
-  function speakViaBrowser(text: string, lang: Lang, force: boolean, gen: number): boolean {
+  function speakViaBrowser(text: string, lang: Lang, force: boolean, gen: number, gender: VoiceGender = 'female'): boolean {
     if (!supported) return false
-    const voice = pickVoice(SPEECH_LANG[lang])
+    const voice = pickVoice(SPEECH_LANG[lang], gender)
     if (!voice && lang === 'sr' && !force) {
       finish(gen)
       return false // Chat: lieber still als falsch
@@ -333,9 +379,9 @@ export function useSpeech(serverTts: boolean) {
   }
 
   /** Ein Satz-Chunk über die Browser-Stimme — reiht ein, statt zu canceln. */
-  function speakChunkBrowser(text: string, lang: Lang, force: boolean, gen: number): boolean {
+  function speakChunkBrowser(text: string, lang: Lang, force: boolean, gen: number, gender: VoiceGender = 'female'): boolean {
     if (!supported) return false
-    const voice = pickVoice(SPEECH_LANG[lang])
+    const voice = pickVoice(SPEECH_LANG[lang], gender)
     if (!voice && lang === 'sr' && !force) return false // lieber still als falsch
     const u = new SpeechSynthesisUtterance(text)
     if (voice) u.voice = voice
@@ -471,7 +517,7 @@ export function useSpeech(serverTts: boolean) {
    */
   function speakStream(text: string, lang: Lang, opts?: SpeakOpts): boolean {
     if (!enabled && !opts?.explicit) return false
-    const t = text.trim().slice(0, MAX_SPEAK_CHARS)
+    const t = cleanForSpeech(text).slice(0, MAX_SPEAK_CHARS)
     if (!t) return false
     if (!streamActiveRef.current) {
       stopPlayback()
@@ -485,7 +531,7 @@ export function useSpeech(serverTts: boolean) {
       enqueueServerChunk(t, lang, opts?.gender ?? 'female', gen)
       return true
     }
-    if (!speakChunkBrowser(t, lang, opts?.force ?? false, gen)) {
+    if (!speakChunkBrowser(t, lang, opts?.force ?? false, gen, opts?.gender ?? 'female')) {
       unfinishedRef.current--
       maybeFinishStream(gen)
       return false
@@ -522,7 +568,7 @@ export function useSpeech(serverTts: boolean) {
   /** Kern: spricht Text; explicit übergeht den Ton-Schalter (gezielter Tap/Selbsttest). */
   function speakInternal(text: string, lang: Lang, opts: SpeakOpts): boolean {
     if (!enabled && !opts.explicit) return false
-    const trimmed = text.trim().slice(0, MAX_SPEAK_CHARS)
+    const trimmed = cleanForSpeech(text).slice(0, MAX_SPEAK_CHARS)
     if (!trimmed) return false
     stopPlayback()
     const gen = genRef.current
@@ -531,7 +577,7 @@ export function useSpeech(serverTts: boolean) {
       void speakViaServer(trimmed, lang, opts.gender ?? 'female', gen)
       return true
     }
-    return speakViaBrowser(trimmed, lang, opts.force ?? false, gen)
+    return speakViaBrowser(trimmed, lang, opts.force ?? false, gen, opts.gender ?? 'female')
   }
 
   /**
