@@ -85,6 +85,12 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [character.id, voice.speak],
   )
+  const speakStreamAs = useCallback(
+    (text: string, lang: Lang, opts?: SpeakOpts) =>
+      voice.speakStream(text, lang, { gender: character.id === 'luka' ? 'male' : 'female', ...opts }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [character.id, voice.speakStream],
+  )
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -267,6 +273,8 @@ export default function App() {
                 speaking: voice.speaking,
                 toggle: voice.toggle,
                 speak: speakAs,
+                speakStream: speakStreamAs,
+                endSpeakStream: voice.endSpeakStream,
                 cancel: voice.cancel,
                 prime: voice.prime,
               }}

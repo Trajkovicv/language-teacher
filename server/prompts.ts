@@ -69,6 +69,25 @@ DEINE APP (wichtig — so erlebt dich der Schüler):
 ${srVoiceLine}`;
 }
 
+/**
+ * Anweisung zur aktuell gewählten App-Sprache (DE/EN/SR-Chips in der Kopfzeile).
+ * Eigener System-Block: Der Wechsel greift SOFORT, egal in welcher Sprache das
+ * bisherige Gespräch lief — genau das erwartet der Nutzer beim Umschalten.
+ */
+export function uiLanguageInstruction(lang: PrimaryLang): string {
+  const name = LANG_NAMES[lang];
+  const prevod =
+    lang === 'sr'
+      ? 'übersetze deine Antwort dort ins DEUTSCHE'
+      : 'übersetze deine Antwort dort ins SERBISCHE (Latinica, außer der Schüler wünscht Ćirilica)';
+  return `AKTUELLE APP-SPRACHE: ${name}.
+- Der Schüler hat die Oberfläche auf ${name} gestellt. Antworte AB SOFORT
+  ausschließlich auf ${name} — auch wenn das bisherige Gespräch in einer
+  anderen Sprache lief. Erklärungen und Grammatik ebenfalls auf ${name}.
+  Diese Einstellung hat Vorrang vor der Sprache früherer Nachrichten.
+- Die PREVOD-Zeile bleibt Pflicht: ${prevod}.`;
+}
+
 /** System-Prompt für die Lern-Gedächtnis-Zusammenfassung (Phase 2, claude-haiku). */
 export function memorySystemPrompt(characterName: CharacterName): string {
   return `Du pflegst das LERN-GEDÄCHTNIS einer Serbisch-Lern-App. Der Lehrer heißt

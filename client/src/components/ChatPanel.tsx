@@ -111,8 +111,37 @@ type VoiceProps = {
   speaking: boolean
   toggle: () => void
   speak: (text: string, lang: Lang, opts?: SpeakOpts) => boolean
+  speakStream: (text: string, lang: Lang, opts?: SpeakOpts) => boolean
+  endSpeakStream: () => void
   cancel: () => void
   prime: () => void
+}
+
+// Abkürzungen, nach deren Punkt KEIN Satzende ist (sonst spräche die Stimme
+// "z." und "B." als eigene Häppchen)
+const NO_BREAK_AFTER = new Set([
+  'z', 'b', 'd', 'h', 'u', 'o', 'ä', 's', 'bzw', 'ggf', 'nr', 'usw', 'ca', 'evtl', 'vgl', 'sog',
+  'engl', 'dt', 'srb', 'npr', 'tj', 'itd', 'str', 'dr', 'mr', 'mrs', 'prof',
+])
+
+/**
+ * Index HINTER dem letzten vollständigen Satz (fürs Mitsprechen beim Streamen);
+ * -1, wenn noch kein kompletter Satz vorliegt. Zeilenumbrüche sind immer Grenzen.
+ */
+function completeSentenceEnd(text: string): number {
+  let end = -1
+  const re = /[.!?…]+["»«')\]]*\s+/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    const before = text.slice(0, m.index)
+    const lastWord = before.match(/([A-Za-zÄÖÜäöüßČĆĐŠŽčćđšž]+)$/)?.[1]?.toLowerCase()
+    if (lastWord && NO_BREAK_AFTER.has(lastWord)) continue
+    if (/\d$/.test(before)) continue // "1." (Aufzählung/Ordnungszahl)
+    end = m.index + m[0].length
+  }
+  const nl = text.lastIndexOf('\n')
+  if (nl >= 0) end = Math.max(end, nl + 1)
+  return end
 }
 
 type Props = {
@@ -389,12 +418,19 @@ export default function ChatPanel({
     abortRef.current = controller
     let acc = ''
     let truncated = false
+    // Mitsprechen beim Streamen: bis hierhin wurde der Haupttext schon gesprochen
+    let spokenLen = 0
 
     try {
       await streamSSE(
         apiUrl('/api/chat'),
-        // profile = Lern-Gedächtnis aus früheren Sitzungen (localStorage, Phase 2)
-        { messages: windowForApi(history, att), character: characterName, profile: getProfile(characterName) },
+        // profile = Lern-Gedächtnis (Phase 2); lang = App-Sprache (Antwortsprache!)
+        {
+          messages: windowForApi(history, att),
+          character: characterName,
+          lang,
+          profile: getProfile(characterName),
+        },
         {
           signal: controller.signal,
           headers: accessHeaders(),
@@ -402,6 +438,14 @@ export default function ChatPanel({
             if (ev.type === 'text') {
               acc += ev.text
               setPendingText(acc)
+              // Jeden fertig gestreamten Satz sofort sprechen (PREVOD bleibt stumm)
+              const mainNow = splitPrevod(hidePartialPrevodMarker(acc)).main
+              const boundary = completeSentenceEnd(mainNow)
+              if (boundary > spokenLen) {
+                const chunk = mainNow.slice(spokenLen, boundary)
+                spokenLen = boundary
+                if (chunk.trim()) voice.speakStream(chunk.replace(/\*/g, ''), lang)
+              }
             } else if (ev.type === 'truncated') {
               truncated = true
             } else if (ev.type === 'error') {
@@ -442,10 +486,12 @@ export default function ChatPanel({
     } finally {
       if (acc) {
         setMessages((m) => [...m, { role: 'assistant', content: acc }])
-        // Antwort laut vorlesen (ohne PREVOD-Zeile) — aber NICHT nach Abbruch
+        // Rest der Antwort sprechen (ohne PREVOD-Zeile) — aber NICHT nach Abbruch
         // (Stopp-Knopf/Charakterwechsel): der Nutzer erwartet dann Stille.
         if (!controller.signal.aborted) {
-          voice.speak(splitPrevod(acc).main.replace(/\*/g, ''), lang)
+          const rest = splitPrevod(acc).main.slice(spokenLen)
+          if (rest.trim()) voice.speakStream(rest.replace(/\*/g, ''), lang)
+          voice.endSpeakStream()
         }
         // Lern-Gedächtnis fortschreiben (persistierter Puffer, fire-and-forget).
         // Anhänge als Text-Marker, damit der Summarizer den Kontext kennt.

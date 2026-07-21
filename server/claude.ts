@@ -149,7 +149,12 @@ export async function createMemoryProfile(opts: {
   return parsed.profil.trim().slice(0, 1500);
 }
 
-export function streamChat(opts: { system: string; profile?: string; messages: ChatMessage[] }) {
+export function streamChat(opts: {
+  system: string;
+  langInstruction?: string;
+  profile?: string;
+  messages: ChatMessage[];
+}) {
   // Cache-Breakpoint auf die LETZTE Nachricht OHNE Anhang setzen: ein Anhang-Turn
   // wird im Folge-Turn client-seitig durch einen Text-Marker ersetzt — ein
   // Breakpoint hinter den Bild-/PDF-Tokens würde also einen Cache-Eintrag
@@ -159,18 +164,24 @@ export function streamChat(opts: { system: string; profile?: string; messages: C
   let bp = opts.messages.length - 1;
   while (bp >= 0 && hasAttachment(opts.messages[bp])) bp--;
 
-  // Lern-Gedächtnis als EIGENER System-Block NACH dem stabilen Lehrer-Prompt:
-  // ändert sich das Profil (alle paar Turns), bleibt der große stabile Block
-  // vorne trotzdem im Prompt-Cache (Präfix-Match).
+  // Sprachwahl + Lern-Gedächtnis als EIGENE System-Blöcke NACH dem stabilen
+  // Lehrer-Prompt: ändern sie sich (Sprachwechsel, Profil-Update), bleibt der
+  // große stabile Block vorne trotzdem im Prompt-Cache (Präfix-Match).
   const system: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [
     { type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } },
   ];
+  if (opts.langInstruction) {
+    system.push({ type: 'text', text: opts.langInstruction });
+  }
   if (opts.profile) {
     system.push({
       type: 'text',
       text: `LERN-GEDÄCHTNIS (aus früheren Sitzungen, vom System gepflegt — nutze es natürlich, statt es aufzusagen):\n${opts.profile}`,
-      cache_control: { type: 'ephemeral' },
     });
+  }
+  // Zweiter Cache-Breakpoint auf dem letzten Zusatz-Block (deckt alle Zusätze ab)
+  if (system.length > 1) {
+    system[system.length - 1] = { ...system[system.length - 1], cache_control: { type: 'ephemeral' } };
   }
 
   return getClient().messages.stream({

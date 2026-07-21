@@ -19,6 +19,7 @@ import {
   isCharacterName,
   memorySystemPrompt,
   teacherSystemPrompt,
+  uiLanguageInstruction,
   type PrimaryLang,
 } from './prompts.js';
 
@@ -180,6 +181,7 @@ app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig
   const messages = parseMessages(req.body);
   const character = isCharacterName(req.body?.character) ? req.body.character : 'Mila';
   const profile = parseProfile(req.body?.profile);
+  const uiLang = parsePrimaryLang(req.body?.lang);
   const pauseMessage = `${character} macht kurz Pause… Versuch es gleich noch einmal.`;
 
   if (!messages) {
@@ -214,7 +216,12 @@ app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig
 
   let stream: ReturnType<typeof streamChat>;
   try {
-    stream = streamChat({ system: teacherSystemPrompt(character, { serverTts: ttsConfigured() }), profile, messages });
+    stream = streamChat({
+      system: teacherSystemPrompt(character, { serverTts: ttsConfigured() }),
+      langInstruction: uiLanguageInstruction(uiLang),
+      profile,
+      messages,
+    });
   } catch (err) {
     // Unerwarteter synchroner Fehler beim Aufbau (Auth-Fehler kämen asynchron über 'error')
     console.error('[chat] Start fehlgeschlagen:', err instanceof Error ? err.message : err);

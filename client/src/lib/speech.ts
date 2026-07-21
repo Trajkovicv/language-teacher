@@ -43,9 +43,10 @@ function logDiag(msg: string) {
 
 // ===== Geteilte Audio-Ressourcen (Modul-Ebene, überleben Re-Renders) =====
 
-// Bekannter Browser-Bug: wird die Utterance vom GC eingesammelt, feuert
-// onend nie und die Sprachausgabe bricht mitten im Satz ab. Referenz halten!
-let currentUtterance: SpeechSynthesisUtterance | null = null
+// Bekannter Browser-Bug: wird eine Utterance vom GC eingesammelt, feuert
+// onend nie und die Sprachausgabe bricht mitten im Satz ab. Referenzen halten!
+// Set statt Einzel-Ref: beim satzweisen Mitsprechen sind mehrere eingereiht.
+const liveUtterances = new Set<SpeechSynthesisUtterance>()
 
 // EIN wiederverwendetes <audio>-Element: einmal in einer Nutzer-Geste
 // „gesegnet" (prime), darf es danach programmatisch abspielen (iOS-Regel).
@@ -74,6 +75,14 @@ export function useSpeech(serverTts: boolean) {
   const fetchAbortRef = useRef<AbortController | null>(null)
   const serverTtsRef = useRef(serverTts)
   serverTtsRef.current = serverTts
+  // Satzweises Mitsprechen während des Streamings: Warteschlangen-Zustand
+  const streamActiveRef = useRef(false) // Stream-Modus läuft (Chunks kommen noch)
+  const streamEndedRef = useRef(false) // Chat hat endSpeakStream() signalisiert
+  const unfinishedRef = useRef(0) // eingereihte, noch nicht fertig gespielte Chunks
+  const firstChunkRef = useRef(true) // erster Chunk braucht die 60-ms-Cancel-Entkopplung
+  const serverQueueRef = useRef<Array<{ text: string; lang: Lang; gender: VoiceGender; url: Promise<string | null> }>>([])
+  const serverPlayingRef = useRef(false)
+  const chunkAbortsRef = useRef<AbortController[]>([])
   const [enabled, setEnabled] = useState(() => {
     try {
       return localStorage.getItem('lt-voice') !== 'off'
@@ -283,19 +292,19 @@ export function useSpeech(serverTts: boolean) {
     }
     // WICHTIG: nur die EIGENE Referenz löschen. Das 'interrupted'-Event einer
     // gecancelten Utterance kommt asynchron — NACHDEM die nächste Utterance
-    // currentUtterance schon übernommen hat; sonst verliert sie den GC-Schutz.
+    // schon eingereiht ist; sonst verlöre sie den GC-Schutz.
     u.onend = () => {
-      if (currentUtterance === u) currentUtterance = null
+      liveUtterances.delete(u)
       finish(gen)
     }
     u.onerror = (e) => {
-      if (currentUtterance === u) currentUtterance = null
+      liveUtterances.delete(u)
       if ((e as SpeechSynthesisErrorEvent).error !== 'interrupted') {
         logDiag(`Browser-Stimme Fehler: ${(e as SpeechSynthesisErrorEvent).error ?? '?'}`)
       }
       finish(gen)
     }
-    currentUtterance = u // GC-Schutz — nicht entfernen!
+    liveUtterances.add(u) // GC-Schutz — nicht entfernen!
     // iOS-Eigenheit: speak() direkt nach cancel() bleibt oft stumm —
     // kurze Verzögerung entkoppelt beides zuverlässig
     timersRef.current.push(
@@ -308,13 +317,204 @@ export function useSpeech(serverTts: boolean) {
     return true
   }
 
+  // ===== Satzweises Mitsprechen (Streaming) =====
+
+  function maybeFinishStream(gen: number) {
+    if (gen !== genRef.current) return
+    if (
+      streamEndedRef.current &&
+      unfinishedRef.current <= 0 &&
+      serverQueueRef.current.length === 0 &&
+      !serverPlayingRef.current
+    ) {
+      streamActiveRef.current = false
+      finish(gen)
+    }
+  }
+
+  /** Ein Satz-Chunk über die Browser-Stimme — reiht ein, statt zu canceln. */
+  function speakChunkBrowser(text: string, lang: Lang, force: boolean, gen: number): boolean {
+    if (!supported) return false
+    const voice = pickVoice(SPEECH_LANG[lang])
+    if (!voice && lang === 'sr' && !force) return false // lieber still als falsch
+    const u = new SpeechSynthesisUtterance(text)
+    if (voice) u.voice = voice
+    u.lang = SPEECH_LANG[lang]
+    u.rate = 0.95
+    u.onstart = () => {
+      if (gen !== genRef.current) return
+      boundarySeenRef.current = false
+      if (!heartbeatRef.current) {
+        heartbeatRef.current = window.setInterval(() => speechSynthesis.resume(), 10_000)
+      }
+      timersRef.current.push(
+        window.setTimeout(() => {
+          if (!boundarySeenRef.current) startMouthRhythm(gen)
+        }, 350),
+      )
+    }
+    u.onboundary = (e) => {
+      if (gen !== genRef.current || typeof e.charIndex !== 'number') return
+      boundarySeenRef.current = true
+      clearMouthTimers()
+      const word = text.slice(e.charIndex).match(/^\S+/)?.[0] ?? ''
+      scheduleShapes(visemesForWord(word), true)
+    }
+    const done = () => {
+      liveUtterances.delete(u)
+      if (gen !== genRef.current) return
+      clearMouthTimers()
+      setMouth('closed')
+      unfinishedRef.current--
+      maybeFinishStream(gen)
+    }
+    u.onend = done
+    u.onerror = (e) => {
+      if ((e as SpeechSynthesisErrorEvent).error !== 'interrupted') {
+        logDiag(`Browser-Stimme Fehler: ${(e as SpeechSynthesisErrorEvent).error ?? '?'}`)
+      }
+      done()
+    }
+    liveUtterances.add(u) // GC-Schutz
+    if (firstChunkRef.current) {
+      // iOS: speak() direkt nach cancel() bleibt oft stumm — einmal entkoppeln
+      firstChunkRef.current = false
+      timersRef.current.push(
+        window.setTimeout(() => {
+          if (gen !== genRef.current) return
+          speechSynthesis.resume()
+          speechSynthesis.speak(u)
+        }, 60),
+      )
+    } else {
+      speechSynthesis.speak(u) // Engine reiht selbst ein
+    }
+    return true
+  }
+
+  /** Ein Satz-Chunk über Azure: Audio sofort laden, in Reihenfolge abspielen. */
+  function enqueueServerChunk(text: string, lang: Lang, gender: VoiceGender, gen: number) {
+    const ctl = new AbortController()
+    chunkAbortsRef.current.push(ctl)
+    const url = fetch(apiUrl('/api/tts'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...accessHeaders() },
+      body: JSON.stringify({ text, lang, gender }),
+      signal: ctl.signal,
+    })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((b) => URL.createObjectURL(b))
+      .catch((e: unknown) => {
+        if (!ctl.signal.aborted) logDiag(`TTS-Chunk fehlgeschlagen (${e instanceof Error ? e.message : e})`)
+        return null
+      })
+    serverQueueRef.current.push({ text, lang, gender, url })
+    pumpServerQueue(gen)
+  }
+
+  function pumpServerQueue(gen: number) {
+    if (gen !== genRef.current || serverPlayingRef.current) return
+    const item = serverQueueRef.current.shift()
+    if (!item) {
+      maybeFinishStream(gen)
+      return
+    }
+    serverPlayingRef.current = true
+    void item.url.then(async (url) => {
+      if (gen !== genRef.current) {
+        if (url) URL.revokeObjectURL(url)
+        return
+      }
+      const skip = () => {
+        if (url) URL.revokeObjectURL(url)
+        serverPlayingRef.current = false
+        unfinishedRef.current--
+        clearMouthTimers()
+        setMouth('rest')
+        pumpServerQueue(gen)
+        maybeFinishStream(gen)
+      }
+      if (!url) {
+        skip() // Satz überspringen — besser als überlappende Fallback-Stimmen
+        return
+      }
+      const audio = getAudio()
+      audio.onplaying = () => {
+        if (gen !== genRef.current) return
+        startMouthRhythm(gen)
+      }
+      audio.onended = skip
+      audio.onerror = skip
+      // OS-Pause (Anruf/Sperrbildschirm): kompletten Sprech-Stream beenden
+      audio.onpause = () => {
+        if (!audio.ended && gen === genRef.current) {
+          logDiag('Audio pausiert (System) — Mitsprechen beendet')
+          serverQueueRef.current = []
+          unfinishedRef.current = 0
+          streamEndedRef.current = true
+          serverPlayingRef.current = false
+          maybeFinishStream(gen)
+        }
+      }
+      audio.src = url
+      try {
+        await audio.play()
+      } catch {
+        skip()
+      }
+    })
+  }
+
+  /**
+   * Satz-Chunk während des Streamings sprechen (reiht ein, cancelt nicht).
+   * Erster Chunk einer Antwort beendet die vorherige Wiedergabe.
+   */
+  function speakStream(text: string, lang: Lang, opts?: SpeakOpts): boolean {
+    if (!enabled && !opts?.explicit) return false
+    const t = text.trim().slice(0, MAX_SPEAK_CHARS)
+    if (!t) return false
+    if (!streamActiveRef.current) {
+      stopPlayback()
+      streamActiveRef.current = true
+      streamEndedRef.current = false
+      setSpeaking(true)
+    }
+    const gen = genRef.current
+    unfinishedRef.current++
+    if (serverTtsRef.current) {
+      enqueueServerChunk(t, lang, opts?.gender ?? 'female', gen)
+      return true
+    }
+    if (!speakChunkBrowser(t, lang, opts?.force ?? false, gen)) {
+      unfinishedRef.current--
+      maybeFinishStream(gen)
+      return false
+    }
+    return true
+  }
+
+  /** Vom Chat gerufen, wenn keine weiteren Chunks mehr kommen. */
+  function endSpeakStream() {
+    if (!streamActiveRef.current) return
+    streamEndedRef.current = true
+    maybeFinishStream(genRef.current)
+  }
+
   function stopPlayback() {
     genRef.current++
     fetchAbortRef.current?.abort()
     fetchAbortRef.current = null
+    chunkAbortsRef.current.forEach((c) => c.abort())
+    chunkAbortsRef.current = []
+    serverQueueRef.current = []
+    serverPlayingRef.current = false
+    streamActiveRef.current = false
+    streamEndedRef.current = false
+    unfinishedRef.current = 0
+    firstChunkRef.current = true
     if (sharedAudio && !sharedAudio.paused) sharedAudio.pause()
     if (supported) speechSynthesis.cancel()
-    currentUtterance = null
+    liveUtterances.clear()
     clearTimers()
     boundarySeenRef.current = false
   }
@@ -385,7 +585,7 @@ export function useSpeech(serverTts: boolean) {
       const sr = pickVoice('sr-RS')
       lines.push(`Browser-Stimmen: ${voices.length} · DE: ${de?.name ?? 'KEINE'} · SR-nah: ${sr?.name ?? 'keine'}`)
       lines.push(
-        `Engine: speaking=${speechSynthesis.speaking} pending=${speechSynthesis.pending} paused=${speechSynthesis.paused} utterance=${currentUtterance ? 'gehalten' : '—'}`,
+        `Engine: speaking=${speechSynthesis.speaking} pending=${speechSynthesis.pending} paused=${speechSynthesis.paused} utterances=${liveUtterances.size}`,
       )
     } else {
       lines.push('Browser-Stimmen: NICHT unterstützt')
@@ -395,7 +595,7 @@ export function useSpeech(serverTts: boolean) {
     return lines.join('\n')
   }
 
-  return { supported, enabled, speaking, mouth, speak, cancel, toggle, prime, diagnostics }
+  return { supported, enabled, speaking, mouth, speak, speakStream, endSpeakStream, cancel, toggle, prime, diagnostics }
 }
 
 // ===== Spracheingabe (STT) — Chrome/Edge: webkitSpeechRecognition =====
