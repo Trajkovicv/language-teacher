@@ -3,6 +3,7 @@ import { streamSSE, SSERequestError } from '../lib/sse'
 import { apiUrl, accessHeaders, setAccessCode } from '../lib/api'
 import { useRecognition, type SpeakOpts } from '../lib/speech'
 import { clearMemory, getProfile, hasMemory, noteExchange } from '../lib/memory'
+import { detectLang } from '../lib/langdetect'
 import { Icon } from './Icons'
 import Bilingual from './Bilingual'
 import VoiceBar from './VoiceBar'
@@ -438,13 +439,15 @@ export default function ChatPanel({
             if (ev.type === 'text') {
               acc += ev.text
               setPendingText(acc)
-              // Jeden fertig gestreamten Satz sofort sprechen (PREVOD bleibt stumm)
+              // Jeden fertig gestreamten Satz sofort sprechen (PREVOD bleibt stumm).
+              // Die Stimme folgt der SPRACHE DER ANTWORT (Mila antwortet in der
+              // Sprache der Nutzer-Nachricht) — Chip nur als Fallback.
               const mainNow = splitPrevod(hidePartialPrevodMarker(acc)).main
               const boundary = completeSentenceEnd(mainNow)
               if (boundary > spokenLen) {
                 const chunk = mainNow.slice(spokenLen, boundary)
                 spokenLen = boundary
-                if (chunk.trim()) voice.speakStream(chunk.replace(/\*/g, ''), lang)
+                if (chunk.trim()) voice.speakStream(chunk.replace(/\*/g, ''), detectLang(mainNow, lang))
               }
             } else if (ev.type === 'truncated') {
               truncated = true
@@ -489,8 +492,9 @@ export default function ChatPanel({
         // Rest der Antwort sprechen (ohne PREVOD-Zeile) — aber NICHT nach Abbruch
         // (Stopp-Knopf/Charakterwechsel): der Nutzer erwartet dann Stille.
         if (!controller.signal.aborted) {
-          const rest = splitPrevod(acc).main.slice(spokenLen)
-          if (rest.trim()) voice.speakStream(rest.replace(/\*/g, ''), lang)
+          const finalMain = splitPrevod(acc).main
+          const rest = finalMain.slice(spokenLen)
+          if (rest.trim()) voice.speakStream(rest.replace(/\*/g, ''), detectLang(finalMain, lang))
           voice.endSpeakStream()
         }
         // Lern-Gedächtnis fortschreiben (persistierter Puffer, fire-and-forget).
@@ -579,7 +583,7 @@ export default function ChatPanel({
                   className="msg-spk"
                   title="Nochmal anhören · Poslušaj ponovo"
                   aria-label="Nachricht vorlesen"
-                  onClick={() => speakTap(main.replace(/\*/g, ''), lang)}
+                  onClick={() => speakTap(main.replace(/\*/g, ''), detectLang(main, lang))}
                 >
                   <Icon id="i-speaker" />
                 </button>
@@ -591,12 +595,12 @@ export default function ChatPanel({
                   role="button"
                   tabIndex={0}
                   title="Antippen zum Anhören · Dodirni i poslušaj"
-                  aria-label="Serbische Übersetzung anhören"
-                  onClick={() => speakTap(prevod.replace(/\*/g, ''), 'sr')}
+                  aria-label="Übersetzungszeile anhören"
+                  onClick={() => speakTap(prevod.replace(/\*/g, ''), detectLang(prevod, 'sr'))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      speakTap(prevod.replace(/\*/g, ''), 'sr')
+                      speakTap(prevod.replace(/\*/g, ''), detectLang(prevod, 'sr'))
                     }
                   }}
                 >

@@ -70,22 +70,26 @@ ${srVoiceLine}`;
 }
 
 /**
- * Anweisung zur aktuell gewählten App-Sprache (DE/EN/SR-Chips in der Kopfzeile).
- * Eigener System-Block: Der Wechsel greift SOFORT, egal in welcher Sprache das
- * bisherige Gespräch lief — genau das erwartet der Nutzer beim Umschalten.
+ * Sprachregel für die Antworten (Nutzer-Wunsch): Der Lehrer antwortet in der
+ * Sprache, in der der Schüler seine LETZTE Nachricht geschrieben hat — und
+ * wechselt sofort mit, wenn der Schüler die Sprache wechselt. Der DE/EN/SR-Chip
+ * der App ist nur noch der Standard für unklare Fälle.
  */
-export function uiLanguageInstruction(lang: PrimaryLang): string {
-  const name = LANG_NAMES[lang];
-  const prevod =
-    lang === 'sr'
-      ? 'übersetze deine Antwort dort ins DEUTSCHE'
-      : 'übersetze deine Antwort dort ins SERBISCHE (Latinica, außer der Schüler wünscht Ćirilica)';
-  return `AKTUELLE APP-SPRACHE: ${name}.
-- Der Schüler hat die Oberfläche auf ${name} gestellt. Antworte AB SOFORT
-  ausschließlich auf ${name} — auch wenn das bisherige Gespräch in einer
-  anderen Sprache lief. Erklärungen und Grammatik ebenfalls auf ${name}.
-  Diese Einstellung hat Vorrang vor der Sprache früherer Nachrichten.
-- Die PREVOD-Zeile bleibt Pflicht: ${prevod}.`;
+export function languagePolicyInstruction(uiLang: PrimaryLang): string {
+  const name = LANG_NAMES[uiLang];
+  return `SPRACHE DEINER ANTWORTEN (wichtig, exakt befolgen):
+- Antworte IMMER in der Sprache, in der der Schüler seine LETZTE Nachricht
+  geschrieben hat: Deutsch → antworte auf Deutsch, Englisch → auf Englisch,
+  Serbisch → auf Serbisch. Wechselt der Schüler die Sprache, wechselst du
+  SOFORT mit — ohne Nachfrage, ohne Kommentar.
+- Nur wenn die Sprache der Nachricht nicht erkennbar ist (einzelne Vokabeln,
+  Emojis, Namen, sehr kurze Antworten wie "ok"): bleib bei der Sprache deiner
+  letzten Antwort, im Zweifel ${name} (die eingestellte App-Sprache).
+- Eine serbische VOKABEL in einem deutschen/englischen Satz macht die
+  Nachricht NICHT serbisch — es zählt die Sprache des Satzes.
+- PREVOD-Zeile (Pflicht am Ende jeder Antwort): Antwortest du auf Deutsch
+  oder Englisch, übersetze dort ins SERBISCHE (Latinica, außer der Schüler
+  wünscht Ćirilica). Antwortest du auf Serbisch, übersetze dort ins DEUTSCHE.`;
 }
 
 /** System-Prompt für die Lern-Gedächtnis-Zusammenfassung (Phase 2, claude-haiku). */

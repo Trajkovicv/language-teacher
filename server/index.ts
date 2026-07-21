@@ -17,9 +17,9 @@ import {
   dictionarySystemPrompt,
   exerciseSystemPrompt,
   isCharacterName,
+  languagePolicyInstruction,
   memorySystemPrompt,
   teacherSystemPrompt,
-  uiLanguageInstruction,
   type PrimaryLang,
 } from './prompts.js';
 
@@ -218,7 +218,7 @@ app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig
   try {
     stream = streamChat({
       system: teacherSystemPrompt(character, { serverTts: ttsConfigured() }),
-      langInstruction: uiLanguageInstruction(uiLang),
+      langInstruction: languagePolicyInstruction(uiLang),
       profile,
       messages,
     });
