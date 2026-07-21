@@ -110,6 +110,7 @@ type VoiceProps = {
   enabled: boolean
   supported: boolean
   speaking: boolean
+  srVoiceMissing: boolean
   toggle: () => void
   speak: (text: string, lang: Lang, opts?: SpeakOpts) => boolean
   speakStream: (text: string, lang: Lang, opts?: SpeakOpts) => boolean
@@ -293,6 +294,18 @@ export default function ChatPanel({
   useEffect(() => {
     onBusyChange(busy)
   }, [busy, onBusyChange])
+
+  // Fehlt die serbische Stimme, EINMAL erklären statt stumm zu bleiben
+  const srHintShownRef = useRef(false)
+  useEffect(() => {
+    if (voice.srVoiceMissing && !srHintShownRef.current) {
+      srHintShownRef.current = true
+      setNotice(
+        'Hinweis: Auf diesem Gerät gibt es keine serbische Stimme — serbische Sätze bleiben deshalb stumm. Echte serbische Stimmen (kostenlos) bekommt die App mit dem Azure-Schlüssel: siehe ANLEITUNG-AZURE.md.',
+      )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.srVoiceMissing])
 
   // Beim Unmount (z. B. Charakterwechsel via key) laufenden Stream abbrechen —
   // der Server stoppt dann auch den Claude-Stream (Kostenkontrolle). Ebenso die

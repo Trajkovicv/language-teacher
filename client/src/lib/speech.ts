@@ -39,13 +39,18 @@ const MAX_SPEAK_CHARS = 1900 // Server-Limit 2000; Antworten sind ohnehin kürze
  * einzelne Qualitätskiller bei Browser-Stimmen.
  */
 export function cleanForSpeech(text: string): string {
-  return text
-    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{1F1E6}-\u{1F1FF}]/gu, ' ')
-    .replace(/[*_#`~]/g, '')
-    .replace(/^[-•>]\s+/gm, '')
-    .replace(/[„“”«»"]/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
+  return (
+    text
+      // ALLE Emojis/Piktogramme über die Unicode-Eigenschaft (vollständig —
+      // handgepflegte Bereiche hatten Lücken, und die Stimmen "kommentieren"
+      // sonst jedes Smiley) + Modifikatoren/Flaggen/Tastenkappen
+      .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u{E0020}-\u{E007F}]/gu, ' ')
+      .replace(/[*_#`~]/g, '')
+      .replace(/^[-•>]\s+/gm, '')
+      .replace(/[„“”«»"]/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+  )
 }
 
 // ===== Stimmen-Qualitäts-Ranking =====
@@ -106,6 +111,9 @@ export function useSpeech(serverTts: boolean) {
   const supported = typeof window !== 'undefined' && 'speechSynthesis' in window
   const [speaking, setSpeaking] = useState(false)
   const [mouth, setMouth] = useState<MouthShape>('rest')
+  // Auf diesem Gerät fehlt eine serbische (oder verwandte) Stimme — die App
+  // soll das erklären, statt kommentarlos stumm zu bleiben
+  const [srVoiceMissing, setSrVoiceMissing] = useState(false)
   const timersRef = useRef<number[]>([])
   const heartbeatRef = useRef(0)
   const boundarySeenRef = useRef(false)
@@ -305,9 +313,13 @@ export function useSpeech(serverTts: boolean) {
   function speakViaBrowser(text: string, lang: Lang, force: boolean, gen: number, gender: VoiceGender = 'female'): boolean {
     if (!supported) return false
     const voice = pickVoice(SPEECH_LANG[lang], gender)
-    if (!voice && lang === 'sr' && !force) {
-      finish(gen)
-      return false // Chat: lieber still als falsch
+    if (!voice && lang === 'sr') {
+      setSrVoiceMissing(true)
+      logDiag('Keine serbische Stimme auf diesem Gerät')
+      if (!force) {
+        finish(gen)
+        return false // Chat: lieber still als falsch
+      }
     }
     const u = new SpeechSynthesisUtterance(text)
     if (voice) u.voice = voice
@@ -382,7 +394,10 @@ export function useSpeech(serverTts: boolean) {
   function speakChunkBrowser(text: string, lang: Lang, force: boolean, gen: number, gender: VoiceGender = 'female'): boolean {
     if (!supported) return false
     const voice = pickVoice(SPEECH_LANG[lang], gender)
-    if (!voice && lang === 'sr' && !force) return false // lieber still als falsch
+    if (!voice && lang === 'sr') {
+      setSrVoiceMissing(true)
+      if (!force) return false // lieber still als falsch
+    }
     const u = new SpeechSynthesisUtterance(text)
     if (voice) u.voice = voice
     u.lang = SPEECH_LANG[lang]
@@ -641,7 +656,7 @@ export function useSpeech(serverTts: boolean) {
     return lines.join('\n')
   }
 
-  return { supported, enabled, speaking, mouth, speak, speakStream, endSpeakStream, cancel, toggle, prime, diagnostics }
+  return { supported, enabled, speaking, mouth, srVoiceMissing, speak, speakStream, endSpeakStream, cancel, toggle, prime, diagnostics }
 }
 
 // ===== Spracheingabe (STT) — Chrome/Edge: webkitSpeechRecognition =====
