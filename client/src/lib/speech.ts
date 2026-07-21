@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
+import { accessHeaders, apiUrl } from './api'
 import type { Lang } from './i18n'
 
-// Phase-1-Zwischenlösung: Browser-Stimmen (Web Speech API) — 0 CHF.
-// Deutsch/Englisch klingen gut; für Serbisch haben Browser meist keine Stimme
-// (kommt in Phase 3 über Azure TTS, das auch Latinica+Ćirilica spricht).
+// Sprachausgabe mit zwei Wegen:
+// 1. Server-TTS (Azure über /api/tts, wenn eingerichtet): spielt über ein
+//    <audio>-Element ab — routet zuverlässig zu Bluetooth-Kopfhörern und
+//    funktioniert auch in der iOS-PWA. Echte serbische Stimmen.
+// 2. Browser-Stimmen (Web Speech API) als Fallback — 0 CHF, aber auf Mobil-
+//    geräten wackelig (Bluetooth-Routing, iOS-PWA-Bugs).
 const SPEECH_LANG: Record<Lang, string> = { de: 'de-DE', en: 'en-US', sr: 'sr-RS' }
 
 /** Mundformen für die Gratis-Lippensynchronisation (kein externes Konto nötig). */
 export type MouthShape = 'rest' | 'closed' | 'small' | 'open' | 'round'
+export type VoiceGender = 'female' | 'male'
+export type SpeakOpts = { force?: boolean; gender?: VoiceGender }
 
 /** Vokale eines Wortes → Sequenz von Mundformen (max. 5 pro Wort). */
 function visemesForWord(word: string): MouthShape[] {
@@ -24,13 +30,49 @@ function visemesForWord(word: string): MouthShape[] {
 }
 
 const VISEME_MS = 110
+const MAX_SPEAK_CHARS = 1900 // Server-Limit 2000; Antworten sind ohnehin kürzer
 
-export function useSpeech() {
+// ===== Diagnose-Protokoll (Tap auf die Versionsnummer zeigt es an) =====
+
+const diagLog: string[] = []
+function logDiag(msg: string) {
+  diagLog.push(`${new Date().toISOString().slice(11, 19)} ${msg}`)
+  if (diagLog.length > 10) diagLog.shift()
+}
+
+// ===== Geteilte Audio-Ressourcen (Modul-Ebene, überleben Re-Renders) =====
+
+// Bekannter Browser-Bug: wird die Utterance vom GC eingesammelt, feuert
+// onend nie und die Sprachausgabe bricht mitten im Satz ab. Referenz halten!
+let currentUtterance: SpeechSynthesisUtterance | null = null
+
+// EIN wiederverwendetes <audio>-Element: einmal in einer Nutzer-Geste
+// „gesegnet" (prime), darf es danach programmatisch abspielen (iOS-Regel).
+let sharedAudio: HTMLAudioElement | null = null
+let lastObjectUrl: string | null = null
+function getAudio(): HTMLAudioElement {
+  if (!sharedAudio) {
+    sharedAudio = new Audio()
+    sharedAudio.preload = 'auto'
+  }
+  return sharedAudio
+}
+
+// 4 Samples Stille — reicht, um das Audio-Element in der Geste zu entsperren
+const SILENT_WAV =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQQAAAAAAAAA'
+
+export function useSpeech(serverTts: boolean) {
   const supported = typeof window !== 'undefined' && 'speechSynthesis' in window
   const [speaking, setSpeaking] = useState(false)
   const [mouth, setMouth] = useState<MouthShape>('rest')
   const timersRef = useRef<number[]>([])
+  const heartbeatRef = useRef(0)
   const boundarySeenRef = useRef(false)
+  const genRef = useRef(0) // entwertet veraltete Fetches/Timer/Audio-Events
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  const serverTtsRef = useRef(serverTts)
+  serverTtsRef.current = serverTts
   const [enabled, setEnabled] = useState(() => {
     try {
       return localStorage.getItem('lt-voice') !== 'off'
@@ -42,6 +84,10 @@ export function useSpeech() {
   function clearTimers() {
     timersRef.current.forEach((t) => clearTimeout(t))
     timersRef.current = []
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current)
+      heartbeatRef.current = 0
+    }
   }
 
   function scheduleShapes(shapes: MouthShape[], closeAfter: boolean) {
@@ -53,14 +99,39 @@ export function useSpeech() {
     }
   }
 
-  // Stimmenliste lädt asynchron — einmal anstoßen, damit getVoices() gefüllt ist
+  /** Pseudozufälliger Mundrhythmus, solange die Generation gültig ist. */
+  function startMouthRhythm(gen: number) {
+    const cycle: MouthShape[] = ['open', 'small', 'round', 'small', 'closed']
+    let i = 0
+    const tick = () => {
+      if (gen !== genRef.current || boundarySeenRef.current) return
+      setMouth(cycle[i % cycle.length])
+      i++
+      timersRef.current.push(window.setTimeout(tick, VISEME_MS + ((i * 37) % 40)))
+    }
+    tick()
+  }
+
+  // Stimmenliste lädt asynchron — einmal anstoßen, damit getVoices() gefüllt ist.
+  // Zusätzlich: Rückkehr in die App (PWA!) weckt eine hängende Engine per resume().
   useEffect(() => {
     if (!supported) return
     const warm = () => speechSynthesis.getVoices()
     warm()
     speechSynthesis.addEventListener('voiceschanged', warm)
+    const wake = () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          speechSynthesis.resume()
+        } catch {
+          // egal
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', wake)
     return () => {
       speechSynthesis.removeEventListener('voiceschanged', warm)
+      document.removeEventListener('visibilitychange', wake)
       speechSynthesis.cancel()
     }
   }, [supported])
@@ -79,78 +150,137 @@ export function useSpeech() {
     return null
   }
 
-  // Mobile Browser erlauben Sprachausgabe erst nach einem Sprechversuch INNERHALB
-  // einer Nutzer-Geste. prime() wird beim ersten Tippen aufgerufen und entsperrt
-  // die Engine mit einer unhörbaren Mini-Äußerung.
+  // Mobile Browser erlauben Audio erst nach einer Nutzer-Geste. prime() wird beim
+  // ersten Tippen aufgerufen und entsperrt BEIDE Wege: die Sprach-Engine (leere
+  // Mini-Äußerung) und das <audio>-Element (stumme Mini-WAV) für Server-TTS.
   const primedRef = useRef(false)
   function prime() {
-    if (!supported || primedRef.current) return
+    if (primedRef.current) return
     primedRef.current = true
     try {
-      const u = new SpeechSynthesisUtterance(' ')
-      u.volume = 0
-      speechSynthesis.speak(u)
-      speechSynthesis.resume()
+      const a = getAudio()
+      a.muted = true
+      a.src = SILENT_WAV
+      const p = a.play()
+      p?.then(() => {
+        a.muted = false
+        logDiag('Audio-Element entsperrt')
+      }).catch((e: unknown) => {
+        a.muted = false
+        logDiag(`Audio-Unlock abgelehnt: ${e instanceof Error ? e.name : e}`)
+      })
     } catch {
-      // egal — nächster speak()-Versuch zeigt, ob es klappt
+      // egal
+    }
+    if (supported) {
+      try {
+        const u = new SpeechSynthesisUtterance(' ')
+        u.volume = 0
+        speechSynthesis.speak(u)
+        speechSynthesis.resume()
+        logDiag('Sprach-Engine geprimt')
+      } catch {
+        // egal — nächster speak()-Versuch zeigt, ob es klappt
+      }
     }
   }
 
-  /**
-   * Spricht den Text; false, wenn nichts gesprochen wird.
-   * force=true (z. B. Wörterbuch-Lautsprecher): notfalls mit der Standardstimme
-   * sprechen, statt still zu bleiben.
-   */
-  function speak(text: string, lang: Lang, opts?: { force?: boolean }): boolean {
-    if (!supported || !enabled || !text.trim()) return false
-    const voice = pickVoice(SPEECH_LANG[lang])
-    if (!voice && lang === 'sr' && !opts?.force) return false // Chat: lieber still als falsch
-    speechSynthesis.cancel()
+  function finish(gen: number) {
+    if (gen !== genRef.current) return
     clearTimers()
-    boundarySeenRef.current = false
+    setMouth('rest')
+    setSpeaking(false)
+  }
+
+  /** Weg 1: Azure-Audio vom eigenen Server über das entsperrte <audio>-Element. */
+  async function speakViaServer(text: string, lang: Lang, gender: VoiceGender, gen: number): Promise<void> {
+    const controller = new AbortController()
+    fetchAbortRef.current = controller
+    try {
+      const res = await fetch(apiUrl('/api/tts'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...accessHeaders() },
+        body: JSON.stringify({ text, lang, gender }),
+        signal: controller.signal,
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      if (gen !== genRef.current) return
+      const audio = getAudio()
+      if (lastObjectUrl) URL.revokeObjectURL(lastObjectUrl)
+      lastObjectUrl = URL.createObjectURL(blob)
+      audio.onplaying = () => {
+        if (gen !== genRef.current) return
+        logDiag('Server-Stimme spielt')
+        startMouthRhythm(gen)
+      }
+      audio.onended = () => finish(gen)
+      audio.onerror = () => {
+        logDiag('Audio-Element-Fehler')
+        finish(gen)
+      }
+      audio.src = lastObjectUrl
+      await audio.play()
+    } catch (err) {
+      if (controller.signal.aborted || gen !== genRef.current) return
+      logDiag(`Server-Stimme fehlgeschlagen (${err instanceof Error ? err.message : err}) → Browser-Stimme`)
+      // Ton nicht einfach verschlucken: Browser-Stimme als Notnagel
+      if (!speakViaBrowser(text, lang, true, gen)) finish(gen)
+    }
+  }
+
+  /** Weg 2: Browser-Stimme (Web Speech API) mit iOS/Chrome-Härtung. */
+  function speakViaBrowser(text: string, lang: Lang, force: boolean, gen: number): boolean {
+    if (!supported) return false
+    const voice = pickVoice(SPEECH_LANG[lang])
+    if (!voice && lang === 'sr' && !force) {
+      finish(gen)
+      return false // Chat: lieber still als falsch
+    }
     const u = new SpeechSynthesisUtterance(text)
     if (voice) u.voice = voice
     u.lang = SPEECH_LANG[lang]
     u.rate = 0.95 // leicht gedrosselt — Unterricht
 
     u.onstart = () => {
+      if (gen !== genRef.current) return
+      logDiag(`Browser-Stimme spricht (${voice?.name ?? 'Standard'})`)
       setSpeaking(true)
-      // Fallback-Rhythmus, falls die Stimme keine Wort-Grenz-Events liefert:
-      // pseudozufällige Mundformen im Sprechtakt
+      // Chrome-Bug: lange Äußerungen verstummen nach ~15 s, wenn nicht
+      // regelmäßig resume() gerufen wird — harmlos auf anderen Plattformen.
+      heartbeatRef.current = window.setInterval(() => speechSynthesis.resume(), 10_000)
+      // Fallback-Rhythmus, falls die Stimme keine Wort-Grenz-Events liefert
       timersRef.current.push(
-        window.setTimeout(function rhythm() {
-          if (boundarySeenRef.current) return
-          const cycle: MouthShape[] = ['open', 'small', 'round', 'small', 'closed']
-          let i = 0
-          const tick = () => {
-            if (boundarySeenRef.current) return
-            setMouth(cycle[i % cycle.length])
-            i++
-            timersRef.current.push(window.setTimeout(tick, VISEME_MS + ((i * 37) % 40)))
-          }
-          tick()
+        window.setTimeout(() => {
+          if (!boundarySeenRef.current) startMouthRhythm(gen)
         }, 350),
       )
     }
     // Wort-Grenze: Mundformen aus den Vokalen des gerade gesprochenen Wortes
     u.onboundary = (e) => {
-      if (typeof e.charIndex !== 'number') return
+      if (gen !== genRef.current || typeof e.charIndex !== 'number') return
       boundarySeenRef.current = true
       clearTimers()
       const word = text.slice(e.charIndex).match(/^\S+/)?.[0] ?? ''
       scheduleShapes(visemesForWord(word), true)
     }
-    const finish = () => {
-      clearTimers()
-      setMouth('rest')
-      setSpeaking(false)
+    u.onend = () => {
+      currentUtterance = null
+      finish(gen)
     }
-    u.onend = finish
-    u.onerror = finish
+    u.onerror = (e) => {
+      currentUtterance = null
+      if ((e as SpeechSynthesisErrorEvent).error !== 'interrupted') {
+        logDiag(`Browser-Stimme Fehler: ${(e as SpeechSynthesisErrorEvent).error ?? '?'}`)
+      }
+      finish(gen)
+    }
+    currentUtterance = u // GC-Schutz — nicht entfernen!
     // iOS-Eigenheit: speak() direkt nach cancel() bleibt oft stumm —
     // kurze Verzögerung entkoppelt beides zuverlässig
     timersRef.current.push(
       window.setTimeout(() => {
+        if (gen !== genRef.current) return
         speechSynthesis.resume() // Chrome kann in pausiertem Zustand hängen
         speechSynthesis.speak(u)
       }, 60),
@@ -158,9 +288,43 @@ export function useSpeech() {
     return true
   }
 
-  function cancel() {
+  function stopPlayback() {
+    genRef.current++
+    fetchAbortRef.current?.abort()
+    fetchAbortRef.current = null
+    if (sharedAudio && !sharedAudio.paused) sharedAudio.pause()
     if (supported) speechSynthesis.cancel()
+    currentUtterance = null
     clearTimers()
+    boundarySeenRef.current = false
+  }
+
+  /** Kern: spricht Text; ignoreEnabled nur für den hörbaren Selbsttest. */
+  function speakInternal(text: string, lang: Lang, opts: SpeakOpts & { ignoreEnabled?: boolean }): boolean {
+    if (!enabled && !opts.ignoreEnabled) return false
+    const trimmed = text.trim().slice(0, MAX_SPEAK_CHARS)
+    if (!trimmed) return false
+    stopPlayback()
+    const gen = genRef.current
+    if (serverTtsRef.current) {
+      setSpeaking(true) // sofortiges Feedback, während das Audio lädt
+      void speakViaServer(trimmed, lang, opts.gender ?? 'female', gen)
+      return true
+    }
+    return speakViaBrowser(trimmed, lang, opts.force ?? false, gen)
+  }
+
+  /**
+   * Spricht den Text; false, wenn nichts gesprochen wird.
+   * force=true (z. B. Wörterbuch-Lautsprecher): notfalls mit der Standardstimme
+   * sprechen, statt still zu bleiben.
+   */
+  function speak(text: string, lang: Lang, opts?: SpeakOpts): boolean {
+    return speakInternal(text, lang, opts ?? {})
+  }
+
+  function cancel() {
+    stopPlayback()
     setMouth('rest')
     setSpeaking(false)
   }
@@ -177,28 +341,41 @@ export function useSpeech() {
         cancel()
       } else {
         // Hörbarer Selbsttest direkt in der Klick-Geste: entsperrt Mobil-Audio
-        // UND zeigt sofort, ob die Umgebung (Lautstärke/Stummschalter) passt
+        // UND zeigt sofort, ob die Umgebung (Lautstärke/Stummschalter/Kopfhörer)
+        // passt — über denselben Weg wie echte Antworten (Server oder Browser).
         prime()
-        clearTimers()
-        timersRef.current.push(
-          window.setTimeout(() => {
-            const u = new SpeechSynthesisUtterance('Ton ist an! Zvuk je uključen!')
-            const v = pickVoice(SPEECH_LANG.de)
-            if (v) u.voice = v
-            u.lang = SPEECH_LANG.de
-            u.onstart = () => setSpeaking(true)
-            u.onend = () => setSpeaking(false)
-            u.onerror = () => setSpeaking(false)
-            speechSynthesis.resume()
-            speechSynthesis.speak(u)
-          }, 80),
-        )
+        speakInternal('Ton ist an! Zvuk je uključen!', 'de', { force: true, ignoreEnabled: true })
       }
       return next
     })
   }
 
-  return { supported, enabled, speaking, mouth, speak, cancel, toggle, prime }
+  /** Diagnose-Text für den Versions-Tap in der Kopfzeile. */
+  function diagnostics(): string {
+    const standalone =
+      window.matchMedia?.('(display-mode: standalone)').matches ||
+      (navigator as unknown as { standalone?: boolean }).standalone === true
+    const lines: string[] = []
+    lines.push(`Modus: ${standalone ? 'installierte App (PWA)' : 'Browser-Tab'}`)
+    lines.push(`Server-Stimmen (Azure): ${serverTtsRef.current ? 'AN' : 'aus — Browser-Stimmen aktiv'}`)
+    lines.push(`Ton-Schalter: ${enabled ? 'an' : 'aus'} · entsperrt: ${primedRef.current ? 'ja' : 'noch nicht'}`)
+    if (supported) {
+      const voices = speechSynthesis.getVoices()
+      const de = pickVoice('de-DE')
+      const sr = pickVoice('sr-RS')
+      lines.push(`Browser-Stimmen: ${voices.length} · DE: ${de?.name ?? 'KEINE'} · SR-nah: ${sr?.name ?? 'keine'}`)
+      lines.push(
+        `Engine: speaking=${speechSynthesis.speaking} pending=${speechSynthesis.pending} paused=${speechSynthesis.paused} utterance=${currentUtterance ? 'gehalten' : '—'}`,
+      )
+    } else {
+      lines.push('Browser-Stimmen: NICHT unterstützt')
+    }
+    lines.push('', 'Letzte Audio-Ereignisse:')
+    lines.push(...(diagLog.length ? diagLog : ['(noch keine)']))
+    return lines.join('\n')
+  }
+
+  return { supported, enabled, speaking, mouth, speak, cancel, toggle, prime, diagnostics }
 }
 
 // ===== Spracheingabe (STT) — Chrome/Edge: webkitSpeechRecognition =====

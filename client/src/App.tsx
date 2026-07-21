@@ -7,13 +7,13 @@ import DictionaryPanel from './components/DictionaryPanel'
 import ExercisePanel from './components/ExercisePanel'
 import { apiUrl } from './lib/api'
 import { useMicLevels } from './lib/mic'
-import { useSpeech } from './lib/speech'
+import { useSpeech, type SpeakOpts } from './lib/speech'
 import type { Lang } from './lib/i18n'
 
 type Theme = 'light' | 'dusk' | 'midnight'
 type Tab = 'chat' | 'dict' | 'ex'
 
-type Health = { ok: boolean; model: string; apiKeyConfigured: boolean }
+type Health = { ok: boolean; model: string; apiKeyConfigured: boolean; tts?: boolean }
 
 const THEMES: readonly Theme[] = ['light', 'dusk', 'midnight'] as const
 const THEME_TITLES: Record<Theme, string> = { light: 'Hell', dusk: 'Dämmerung', midnight: 'Mitternacht' }
@@ -70,7 +70,15 @@ export default function App() {
   const [health, setHealth] = useState<Health | null>(null)
   const streak = useMemo(trackStreak, [])
   const mic = useMicLevels()
-  const voice = useSpeech()
+  const voice = useSpeech(health?.tts === true)
+
+  // Stimm-Geschlecht passend zum Charakter (Azure-Stimmen): Luka männlich
+  const speakAs = useCallback(
+    (text: string, lang: Lang, opts?: SpeakOpts) =>
+      voice.speak(text, lang, { gender: character.id === 'luka' ? 'male' : 'female', ...opts }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [character.id, voice.speak],
+  )
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -146,7 +154,14 @@ export default function App() {
             <div className="mark">{character.mark}</div>
             <div>
               <h1>{character.name}</h1>
-              <p>Sprachlern-App · Serbisch · v{__BUILD_ID__}</p>
+              {/* Tap auf die Version: Audio-Diagnose (hilft bei „ich höre nichts") */}
+              <p
+                style={{ cursor: 'pointer' }}
+                title="Antippen: Audio-Diagnose"
+                onClick={() => window.alert(`Language Teacher v${__BUILD_ID__}\n\n${voice.diagnostics()}`)}
+              >
+                Sprachlern-App · Serbisch · v{__BUILD_ID__}
+              </p>
             </div>
           </div>
           <div className="spacer" />
@@ -226,10 +241,11 @@ export default function App() {
               }}
               voice={{
                 enabled: voice.enabled,
-                supported: voice.supported,
+                // Mit Server-Stimmen funktioniert Ton auch ohne Browser-TTS
+                supported: voice.supported || health?.tts === true,
                 speaking: voice.speaking,
                 toggle: voice.toggle,
-                speak: voice.speak,
+                speak: speakAs,
                 cancel: voice.cancel,
                 prime: voice.prime,
               }}
@@ -241,7 +257,7 @@ export default function App() {
               onToggleSaved={toggleSaved}
               onSpeak={(text) => {
                 voice.prime()
-                voice.speak(text, 'sr', { force: true })
+                speakAs(text, 'sr', { force: true })
               }}
             />
             <ExercisePanel active={tab === 'ex'} lang={lang} />

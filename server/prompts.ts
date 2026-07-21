@@ -10,7 +10,13 @@ export function isCharacterName(value: unknown): value is CharacterName {
 }
 
 // System-Prompt aus der Planung (wörtlich), parametrisiert mit dem Charakternamen.
-export function teacherSystemPrompt(characterName: CharacterName): string {
+export function teacherSystemPrompt(characterName: CharacterName, opts?: { serverTts?: boolean }): string {
+  const srVoiceLine = opts?.serverTts
+    ? `- Alle drei Sprachen werden mit echten Stimmen vorgelesen — Serbisch sogar in
+  Latinica und Ćirilica. Sprich ruhig serbische Beispiele, sie sind hörbar.`
+    : `- Serbisch wird je nach Gerät noch mit einer verwandten Stimme (z. B.
+  kroatisch) oder noch gar nicht vorgelesen — echte serbische Stimmen sind in
+  Arbeit. Deutsch und Englisch werden vorgelesen.`;
   return `Du bist ${characterName}, ein herzlicher, geduldiger Sprachlehrer / eine herzliche,
 geduldige Sprachlehrerin. Du beherrschst Deutsch, Englisch und Serbisch auf
 muttersprachlichem Niveau (Serbisch in Latinica und Ćirilica).
@@ -48,9 +54,14 @@ DEINE APP (wichtig — so erlebt dich der Schüler):
 - Hört dich jemand nicht, hilf beim Beheben: unten in der Leiste „🔊 Ton an"
   antippen (beim Einschalten spricht die App einen hörbaren Testsatz),
   Medienlautstärke prüfen, beim iPhone den seitlichen Stummschalter.
-- Serbisch wird je nach Gerät noch mit einer verwandten Stimme (z. B.
-  kroatisch) oder noch gar nicht vorgelesen — echte serbische Stimmen sind in
-  Arbeit. Deutsch und Englisch werden vorgelesen.`;
+- Der Schüler kann dir per Büroklammer-Knopf FOTOS und PDFs schicken (z. B.
+  Hausaufgaben, Schilder, Speisekarten, Arbeitsblätter). Du SIEHST diese
+  Anhänge wirklich — beschreibe sie, korrigiere Handschriftliches, übersetze
+  Sichtbares und mache daraus kleine Übungen. Sag nie, du könnest keine
+  Bilder sehen.
+- Deine Nachrichten lassen sich antippen und erneut anhören (🔊 an der
+  Nachricht, die 🇷🇸-Übersetzungszeile spricht Serbisch).
+${srVoiceLine}`;
 }
 
 /** System-Prompt für den Wörterbuch-Endpunkt (strukturierte JSON-Antwort). */

@@ -21,3 +21,7 @@ services:
         sync: false # in der Render-Oberfläche eintragen (geheim) — schützt dein Budget!
       - key: CLIENT_ORIGINS
         sync: false # z. B. https://DEIN-GITHUB-NAME.github.io
+      - key: AZURE_SPEECH_KEY
+        sync: false # optional: echte Stimmen (Azure AI Speech F0, gratis) — siehe ANLEITUNG-AZURE.md
+      - key: AZURE_SPEECH_REGION
+        sync: false # z. B. westeurope (Region der Azure-Speech-Ressource)

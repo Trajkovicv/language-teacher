@@ -32,13 +32,18 @@ export default defineConfig({
       workbox: {
         // API-Aufrufe (inkl. SSE-Streaming) nie vom Service Worker abfangen
         navigateFallbackDenylist: [/^\/api/],
+        // Neue Version soll ohne doppeltes Neuöffnen aktiv werden (iOS-PWA
+        // hängt sonst gern auf altem Stand — Nutzer sah tagelang alte Builds)
+        skipWaiting: true,
+        clientsClaim: true,
       },
     }),
   ],
   server: {
     proxy: {
-      // Alle /api-Aufrufe gehen an den Express-Server (SSE-kompatibel)
-      '/api': 'http://localhost:3001',
+      // Alle /api-Aufrufe gehen an den Express-Server (SSE-kompatibel).
+      // SERVER_PORT erlaubt eine zweite Dev-Instanz (z. B. Worktree) ohne Kollision.
+      '/api': `http://localhost:${process.env.SERVER_PORT ?? '3001'}`,
     },
   },
 })

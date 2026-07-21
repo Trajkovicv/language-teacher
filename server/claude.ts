@@ -5,7 +5,15 @@ export const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? 'claude-sonnet-5';
 // Budget-Regel: Antworten hart auf 1024 Output-Tokens begrenzen
 export const MAX_TOKENS = 1024;
 
-export type ChatMessage = { role: 'user' | 'assistant'; content: string };
+// Anhänge (M8): der aktuelle User-Turn darf Bild-/PDF-Blöcke enthalten.
+// Ältere Verlaufs-Nachrichten werden client-seitig zu Text-Markern reduziert,
+// damit ein Anhang nur EINMAL Input-Tokens kostet (Budget-Regel).
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'; data: string } }
+  | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } };
+
+export type ChatMessage = { role: 'user' | 'assistant'; content: string | ContentBlock[] };
 
 // Der Client wird beim ersten Request erstellt. Ein fehlender API-Key wirft hier
 // NICHT — der Auth-Fehler entsteht erst beim Request und kommt über das
@@ -67,15 +75,15 @@ export function streamChat(opts: { system: string; messages: ChatMessage[] }) {
     system: [
       { type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } },
     ],
-    messages: opts.messages.map((m, i) =>
-      i === last
-        ? {
-            role: m.role,
-            content: [
-              { type: 'text' as const, text: m.content, cache_control: { type: 'ephemeral' as const } },
-            ],
-          }
-        : { role: m.role, content: m.content },
-    ),
+    messages: opts.messages.map((m, i) => {
+      if (i !== last) return { role: m.role, content: m.content };
+      // Cache-Breakpoint auf dem LETZTEN Block der letzten Nachricht —
+      // so wird der komplette Verlauf beim nächsten Turn aus dem Cache gelesen.
+      const blocks: Array<ContentBlock & { cache_control?: { type: 'ephemeral' } }> =
+        typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : [...m.content];
+      const tail = blocks[blocks.length - 1];
+      blocks[blocks.length - 1] = { ...tail, cache_control: { type: 'ephemeral' as const } };
+      return { role: m.role, content: blocks };
+    }),
   });
 }

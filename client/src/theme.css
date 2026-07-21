@@ -302,3 +302,27 @@ table.decl td:first-child{font-weight:700}table.decl td:last-child{color:var(--i
 .vhint.zone-quiet{color:var(--ink-soft)}
 .vhint.zone-good{color:var(--green)}
 .vhint.zone-loud{color:var(--brick)}
+
+/* ===== M8: Anhänge (Foto/PDF) + Tipp-zum-Anhören ===== */
+.att-thumb{display:block;max-width:180px;max-height:180px;border-radius:12px;margin-bottom:6px;border:1px solid rgba(255,255,255,.35)}
+.att-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;background:rgba(255,255,255,.28);border-radius:9px;padding:3px 8px;margin-bottom:5px}
+.att-pending{display:flex;align-items:center;gap:9px;padding:8px 16px 0;background:var(--card)}
+.att-pending img{width:40px;height:40px;object-fit:cover;border-radius:9px;border:1.5px solid var(--line)}
+.att-pending .att-ico{font-size:22px}
+.att-pending .att-name{flex:1;font-size:12px;font-weight:700;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-pending .att-x{border:none;background:var(--card-2);color:var(--ink-soft);width:26px;height:26px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:800}
+.msg-spk{border:none;background:transparent;color:var(--brand-ink);cursor:pointer;padding:0;display:inline-flex;align-items:center;opacity:.75}
+.msg-spk:hover{opacity:1}
+.msg-spk .ico{width:14px;height:14px}
+.tl-tap{cursor:pointer}
+.tl-tap:hover{color:var(--brand-ink)}
+/* Eingabezeile: Textfeld darf unter seine intrinsische Breite schrumpfen —
+   sonst schiebt der zweite Knopf (Anhang) den Senden-Knopf aus dem Viewport */
+.inputbar .in{min-width:0}
+@media (max-width:520px){
+  .inputbar{gap:6px;padding:10px 10px 14px}
+  .micbtn{width:42px;height:42px;border-radius:12px;flex-shrink:0}
+  .micbtn .ico{width:18px;height:18px}
+  .inputbar .in{padding:12px 12px}
+  .inputbar .send{padding-left:12px;padding-right:12px;flex-shrink:0}
+}

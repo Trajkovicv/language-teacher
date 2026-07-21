@@ -2,7 +2,8 @@ import './env.js';
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { CLAUDE_MODEL, createJson, streamChat, type ChatMessage } from './claude.js';
+import { CLAUDE_MODEL, createJson, streamChat, type ChatMessage, type ContentBlock } from './claude.js';
+import { synthesize, ttsConfigured, type TtsGender, type TtsLang } from './tts.js';
 import {
   dictionarySystemPrompt,
   exerciseSystemPrompt,
@@ -16,7 +17,8 @@ const app = express();
 // die Proxy-Adresse und das Pro-IP-Rate-Limit ein globales Limit.
 // Bewusst 1 statt true (true triggert die Permissiv-Warnung von express-rate-limit).
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '1mb' }));
+// 10 MB wegen Foto-/PDF-Anhängen (Base64 im JSON-Body); Text-Limits weiter unten
+app.use(express.json({ limit: '10mb' }));
 
 // Zusätzliche erlaubte Origins fürs Hosting (z. B. https://<name>.github.io), kommagetrennt
 const extraOrigins = (process.env.CLIENT_ORIGINS ?? '')
@@ -60,25 +62,76 @@ app.get('/api/health', (_req, res) => {
     ok: true,
     model: CLAUDE_MODEL,
     apiKeyConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+    tts: ttsConfigured(),
   });
 });
 
 // Eingabegrenzen (Kostenkontrolle: nie ungeprüft an die API durchreichen)
 const MAX_MESSAGES = 60;
 const MAX_MESSAGE_CHARS = 4000;
+// Anhänge: Bilder werden client-seitig verkleinert (≤1024px JPEG); PDFs max. 4 MB.
+// Base64 bläht ~4/3 auf — Grenzen in Base64-Zeichen.
+const MAX_IMAGE_B64 = 3_000_000;
+const MAX_PDF_B64 = 6_000_000;
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const;
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * Ein Client-Anhang-Block {type, media_type, data} → Anthropic-ContentBlock.
+ * Genau EIN Anhang pro Anfrage (Budget: Bilder/PDFs kosten deutlich Input-Tokens).
+ */
+function parseAttachment(entry: Record<string, unknown>): ContentBlock | null {
+  const { type, media_type: mediaType, data } = entry;
+  if (typeof data !== 'string' || data.length === 0 || !BASE64_RE.test(data)) return null;
+  if (type === 'image') {
+    if (!(IMAGE_TYPES as readonly string[]).includes(mediaType as string)) return null;
+    if (data.length > MAX_IMAGE_B64) return null;
+    return { type: 'image', source: { type: 'base64', media_type: mediaType as (typeof IMAGE_TYPES)[number], data } };
+  }
+  if (type === 'document') {
+    if (mediaType !== 'application/pdf' || data.length > MAX_PDF_B64) return null;
+    return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } };
+  }
+  return null;
+}
 
 function parseMessages(body: unknown): ChatMessage[] | null {
   if (typeof body !== 'object' || body === null) return null;
   const raw = (body as Record<string, unknown>).messages;
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_MESSAGES) return null;
 
+  let attachments = 0;
   const messages: ChatMessage[] = [];
   for (const entry of raw) {
     if (typeof entry !== 'object' || entry === null) return null;
     const { role, content } = entry as Record<string, unknown>;
     if (role !== 'user' && role !== 'assistant') return null;
-    if (typeof content !== 'string' || content.length === 0 || content.length > MAX_MESSAGE_CHARS) return null;
-    messages.push({ role, content });
+
+    if (typeof content === 'string') {
+      if (content.length === 0 || content.length > MAX_MESSAGE_CHARS) return null;
+      messages.push({ role, content });
+      continue;
+    }
+
+    // Block-Form: [Anhang][, Text] — nur im User-Turn erlaubt
+    if (!Array.isArray(content) || content.length === 0 || content.length > 2 || role !== 'user') return null;
+    const blocks: ContentBlock[] = [];
+    for (const b of content) {
+      if (typeof b !== 'object' || b === null) return null;
+      const block = b as Record<string, unknown>;
+      if (block.type === 'text') {
+        if (typeof block.text !== 'string' || block.text.length === 0 || block.text.length > MAX_MESSAGE_CHARS)
+          return null;
+        blocks.push({ type: 'text', text: block.text });
+      } else {
+        const att = parseAttachment(block);
+        if (!att) return null;
+        if (++attachments > 1) return null;
+        blocks.push(att);
+      }
+    }
+    if (!blocks.some((b) => b.type !== 'text')) return null; // Block-Form nur mit Anhang sinnvoll
+    messages.push({ role, content: blocks });
   }
   if (messages[0].role !== 'user') return null;
   return messages;
@@ -121,7 +174,7 @@ app.post('/api/chat', requireAccessCode, apiLimiter, (req, res) => {
 
   let stream: ReturnType<typeof streamChat>;
   try {
-    stream = streamChat({ system: teacherSystemPrompt(character), messages });
+    stream = streamChat({ system: teacherSystemPrompt(character, { serverTts: ttsConfigured() }), messages });
   } catch (err) {
     // Unerwarteter synchroner Fehler beim Aufbau (Auth-Fehler kämen asynchron über 'error')
     console.error('[chat] Start fehlgeschlagen:', err instanceof Error ? err.message : err);
@@ -168,6 +221,44 @@ app.post('/api/chat', requireAccessCode, apiLimiter, (req, res) => {
   });
 
   stream.on('end', finish);
+});
+
+// ============ Sprachausgabe (Azure TTS, Phase 3b vorgezogen) ============
+
+// Eigenes Limit statt apiLimiter: Tipp-zum-Anhören darf das Chat-Kontingent
+// nicht aufbrauchen; Azure F0 ist gratis (500k Zeichen/Monat), Cache in tts.ts.
+const ttsLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Zu viele Hör-Anfragen — bitte kurz warten.' },
+});
+
+const MAX_TTS_CHARS = 2000;
+
+app.post('/api/tts', requireAccessCode, ttsLimiter, async (req, res) => {
+  if (!ttsConfigured()) {
+    // Client fällt dann auf die Browser-Stimmen zurück
+    res.status(503).json({ error: 'Server-Stimmen sind nicht eingerichtet.' });
+    return;
+  }
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  const lang: TtsLang = req.body?.lang === 'en' || req.body?.lang === 'sr' ? req.body.lang : 'de';
+  const gender: TtsGender = req.body?.gender === 'male' ? 'male' : 'female';
+  if (!text || text.length > MAX_TTS_CHARS) {
+    res.status(400).json({ error: `Text fehlt oder ist länger als ${MAX_TTS_CHARS} Zeichen.` });
+    return;
+  }
+  try {
+    const audio = await synthesize(text, lang, gender);
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.send(audio);
+  } catch (err) {
+    console.error('[tts] Fehler:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'Die Stimme macht kurz Pause… Versuch es gleich noch einmal.' });
+  }
 });
 
 // ============ Wörterbuch (M4) ============

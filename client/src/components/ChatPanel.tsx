@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { streamSSE, SSERequestError } from '../lib/sse'
 import { apiUrl, accessHeaders, setAccessCode } from '../lib/api'
 import { useRecognition } from '../lib/speech'
@@ -8,7 +8,89 @@ import VoiceBar from './VoiceBar'
 import type { Lang } from '../lib/i18n'
 import type { MicZone } from '../lib/mic'
 
-export type UiMessage = { role: 'user' | 'assistant'; content: string }
+/** Anhang im Verlauf: nur Anzeige-Daten (Thumbnail/Name) — die Base64-Rohdaten
+ *  werden NICHT im Verlauf gehalten und nur beim Absenden einmal mitgeschickt
+ *  (Budget: ein Bild/PDF kostet nur im eigenen Turn Input-Tokens). */
+export type UiAttachment = { kind: 'image' | 'pdf'; name: string; preview?: string }
+export type UiMessage = { role: 'user' | 'assistant'; content: string; attachment?: UiAttachment }
+
+/** Anhang, der gerade zum Absenden bereitliegt (inkl. Base64-Daten). */
+type PendingAttachment = {
+  kind: 'image' | 'pdf'
+  name: string
+  media: string
+  data: string
+  preview?: string
+}
+
+/** Wire-Format an den Server (siehe server/index.ts parseMessages). */
+type ApiBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; media_type: string; data: string }
+  | { type: 'document'; media_type: string; data: string }
+type ApiMessage = { role: 'user' | 'assistant'; content: string | ApiBlock[] }
+
+const MAX_PDF_BYTES = 4 * 1024 * 1024
+
+/** Bild client-seitig auf max. 1024px verkleinern → JPEG-Base64 (spart Tokens). */
+async function processImage(file: File): Promise<PendingAttachment> {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'))
+      el.src = url
+    })
+    const scale = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas nicht verfügbar')
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.82)
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+    if (!base64) throw new Error('Bild konnte nicht umgewandelt werden')
+
+    // kleines Vorschaubild für die Chat-Blase
+    const pScale = Math.min(1, 320 / Math.max(canvas.width, canvas.height))
+    const pCanvas = document.createElement('canvas')
+    pCanvas.width = Math.max(1, Math.round(canvas.width * pScale))
+    pCanvas.height = Math.max(1, Math.round(canvas.height * pScale))
+    pCanvas.getContext('2d')?.drawImage(canvas, 0, 0, pCanvas.width, pCanvas.height)
+    return {
+      kind: 'image',
+      name: file.name || 'foto.jpg',
+      media: 'image/jpeg',
+      data: base64,
+      preview: pCanvas.toDataURL('image/jpeg', 0.7),
+    }
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+function processPdf(file: File): Promise<PendingAttachment> {
+  return new Promise((resolve, reject) => {
+    if (file.size > MAX_PDF_BYTES) {
+      reject(new Error('PDF ist zu groß — bitte höchstens 4 MB.'))
+      return
+    }
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('PDF konnte nicht gelesen werden'))
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? '')
+      const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+      if (!base64) {
+        reject(new Error('PDF konnte nicht gelesen werden'))
+        return
+      }
+      resolve({ kind: 'pdf', name: file.name || 'dokument.pdf', media: 'application/pdf', data: base64 })
+    }
+    reader.readAsDataURL(file)
+  })
+}
 
 type MicProps = {
   active: boolean
@@ -51,13 +133,33 @@ const QUICK_REPLIES = ['Doviđenja! 👋', 'Ponovi, molim te', 'Kako se kaže �
  * Letzte N Nachrichten senden; die erste muss role 'user' haben (API-Anforderung).
  * Inhalte werden defensiv auf das Server-Limit gekappt — sonst würde eine einzige
  * überlange Assistant-Antwort jeden weiteren Request dauerhaft mit 400 blockieren.
+ * Frühere Anhänge werden zu Text-Markern („[Bild: …]") — die Rohdaten gehen nur
+ * im Turn des Anhangs selbst mit (Budget!).
  */
-function windowForApi(history: UiMessage[]): UiMessage[] {
+function windowForApi(history: UiMessage[], pending?: PendingAttachment | null): ApiMessage[] {
   let win = history.slice(-HISTORY_WINDOW)
   while (win.length > 0 && win[0].role !== 'user') win = win.slice(1)
-  return win.map((m) =>
-    m.content.length > MAX_INPUT_CHARS ? { ...m, content: m.content.slice(0, MAX_INPUT_CHARS) } : m,
-  )
+  const messages: ApiMessage[] = win.map((m) => {
+    let text = m.content
+    if (m.attachment) {
+      const marker = `[${m.attachment.kind === 'image' ? 'Bild' : 'PDF'}: ${m.attachment.name}]`
+      text = text ? `${marker} ${text}` : marker
+    }
+    return { role: m.role, content: text.length > MAX_INPUT_CHARS ? text.slice(0, MAX_INPUT_CHARS) : text }
+  })
+  // Der aktuelle Turn (letzte Nachricht) trägt den Anhang als echte Blöcke
+  const last = messages[messages.length - 1]
+  if (pending && last?.role === 'user') {
+    const blocks: ApiBlock[] = [
+      pending.kind === 'image'
+        ? { type: 'image', media_type: pending.media, data: pending.data }
+        : { type: 'document', media_type: pending.media, data: pending.data },
+    ]
+    const text = win[win.length - 1].content.trim()
+    if (text) blocks.push({ type: 'text', text: text.slice(0, MAX_INPUT_CHARS) })
+    messages[messages.length - 1] = { role: 'user', content: blocks }
+  }
+  return messages
 }
 
 /**
@@ -118,8 +220,11 @@ export default function ChatPanel({
   // null = kein Stream aktiv; '' = Anfrage läuft, noch kein Token (Tipp-Indikator)
   const [pendingText, setPendingText] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [attachment, setAttachment] = useState<PendingAttachment | null>(null)
+  const [attaching, setAttaching] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const pauseMessage = `${characterName} macht kurz Pause… Versuch es gleich noch einmal.`
 
@@ -155,6 +260,16 @@ export default function ChatPanel({
     },
   )
 
+  /** Tipp-zum-Anhören: expliziter Wunsch — bei ausgeschaltetem Ton kurz erklären. */
+  function speakTap(text: string, speakLang: Lang, force = false) {
+    voice.prime()
+    if (!voice.enabled) {
+      setNotice('Der Ton ist aus — tippe unten in der Leiste auf „🔇 Ton aus", um ihn einzuschalten.')
+      return
+    }
+    voice.speak(text, speakLang, { force })
+  }
+
   // WICHTIG: Erkennung und Pegel-Mikrofon NIE gleichzeitig — auf vielen Handys
   // kann nur einer das Mikrofon halten, die Erkennung bräche sonst sofort ab.
   // Mit Erkennung: nur Diktat. Ohne (z. B. Firefox): der reine Mikrofontest.
@@ -173,16 +288,40 @@ export default function ChatPanel({
     }
   }
 
+  /** Datei ausgewählt: Bild verkleinern bzw. PDF einlesen, als Anhang bereitlegen. */
+  async function onFileSelected(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // dieselbe Datei soll erneut wählbar sein
+    if (!file) return
+    setNotice(null)
+    setAttaching(true)
+    try {
+      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+        setAttachment(await processPdf(file))
+      } else if (file.type.startsWith('image/') || file.type === '') {
+        setAttachment(await processImage(file))
+      } else {
+        setNotice('Nur Fotos und PDFs können angehängt werden.')
+      }
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Anhang konnte nicht gelesen werden.')
+    } finally {
+      setAttaching(false)
+    }
+  }
+
   async function send(textOverride?: string) {
     const text = (textOverride ?? input).trim()
-    if (!text || busy) return
+    const att = attachment
+    if ((!text && !att) || busy) return
     voice.prime() // Mobile: Audio innerhalb der Nutzer-Geste entsperren
     voice.cancel() // laufende Sprachausgabe stoppen, neue Runde beginnt
     setInput('')
+    setAttachment(null)
     setNotice(null)
     setBusy(true)
     try {
-      await runExchange(messages, text)
+      await runExchange(messages, text, att)
     } finally {
       setBusy(false)
       setPendingText(null)
@@ -191,8 +330,15 @@ export default function ChatPanel({
   }
 
   /** Ein Frage-Antwort-Austausch; ruft sich bei neu eingegebenem Zugangscode einmal selbst auf. */
-  async function runExchange(baseHistory: UiMessage[], text: string): Promise<void> {
-    const history: UiMessage[] = [...baseHistory, { role: 'user', content: text }]
+  async function runExchange(baseHistory: UiMessage[], text: string, att?: PendingAttachment | null): Promise<void> {
+    const history: UiMessage[] = [
+      ...baseHistory,
+      {
+        role: 'user',
+        content: text,
+        attachment: att ? { kind: att.kind, name: att.name, preview: att.preview } : undefined,
+      },
+    ]
     setMessages(history)
     setPendingText('')
 
@@ -204,7 +350,7 @@ export default function ChatPanel({
     try {
       await streamSSE(
         apiUrl('/api/chat'),
-        { messages: windowForApi(history), character: characterName },
+        { messages: windowForApi(history, att), character: characterName },
         {
           signal: controller.signal,
           headers: accessHeaders(),
@@ -229,17 +375,19 @@ export default function ChatPanel({
           const code = window.prompt('Diese App ist geschützt. Zugangscode eingeben:')
           if (code?.trim()) {
             setAccessCode(code.trim())
-            return runExchange(baseHistory, text)
+            return runExchange(baseHistory, text, att)
           }
           setInput(text)
+          setAttachment(att ?? null)
           setNotice('Ohne gültigen Zugangscode kann keine Nachricht gesendet werden.')
           return
         }
         if (acc === '') {
           // Anfrage kam gar nicht durch (400/429/Netz): Nachricht zurückrollen,
-          // Eingabe wiederherstellen, damit nichts verloren geht
+          // Eingabe + Anhang wiederherstellen, damit nichts verloren geht
           setMessages(baseHistory)
           setInput(text)
+          setAttachment(att ?? null)
         }
         // Nur Server-Meldungen anzeigen; rohe Browser-Fehler ("Failed to fetch") → Pausen-Meldung
         setNotice(
@@ -295,6 +443,10 @@ export default function ChatPanel({
             return (
               <div key={i} className="msg student">
                 <div className="who">Du</div>
+                {m.attachment?.kind === 'image' && m.attachment.preview && (
+                  <img className="att-thumb" src={m.attachment.preview} alt={m.attachment.name} />
+                )}
+                {m.attachment?.kind === 'pdf' && <span className="att-chip">📄 {m.attachment.name}</span>}
                 {m.content}
               </div>
             )
@@ -304,9 +456,27 @@ export default function ChatPanel({
             <div key={i} className="msg mila">
               <div className="who">
                 <span className="charName">{characterName}</span>
+                <button
+                  type="button"
+                  className="msg-spk"
+                  title="Nochmal anhören · Poslušaj ponovo"
+                  onClick={() => speakTap(main.replace(/\*/g, ''), lang)}
+                >
+                  <Icon id="i-speaker" />
+                </button>
               </div>
               {renderRich(main)}
-              {prevod && <span className="tl">🇷🇸 {renderRich(prevod)}</span>}
+              {prevod && (
+                <span
+                  className="tl tl-tap"
+                  role="button"
+                  tabIndex={0}
+                  title="Antippen zum Anhören · Dodirni i poslušaj"
+                  onClick={() => speakTap(prevod.replace(/\*/g, ''), 'sr', true)}
+                >
+                  🇷🇸 {renderRich(prevod)}
+                </span>
+              )}
             </div>
           )
         })}
@@ -363,6 +533,20 @@ export default function ChatPanel({
         onVoiceToggle={voice.toggle}
       />
 
+      {attachment && (
+        <div className="att-pending">
+          {attachment.kind === 'image' && attachment.preview ? (
+            <img src={attachment.preview} alt="" />
+          ) : (
+            <span className="att-ico">📄</span>
+          )}
+          <span className="att-name">{attachment.name}</span>
+          <button type="button" className="att-x" title="Anhang entfernen · Ukloni" onClick={() => setAttachment(null)}>
+            ✕
+          </button>
+        </div>
+      )}
+
       <form
         className="inputbar"
         onSubmit={(e) => {
@@ -370,6 +554,22 @@ export default function ChatPanel({
           void send()
         }}
       >
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,application/pdf"
+          style={{ display: 'none' }}
+          onChange={(e) => void onFileSelected(e)}
+        />
+        <button
+          type="button"
+          className={attachment ? 'micbtn active' : 'micbtn'}
+          onClick={() => fileRef.current?.click()}
+          disabled={attaching || busy}
+          title="Foto oder PDF anhängen · Priloži sliku ili PDF"
+        >
+          <Icon id="i-clip" />
+        </button>
         <button
           type="button"
           className={mic.active || rec.listening ? 'micbtn active' : 'micbtn'}
@@ -391,7 +591,7 @@ export default function ChatPanel({
             Stopp
           </button>
         ) : (
-          <button type="submit" className="send" disabled={!input.trim()}>
+          <button type="submit" className="send" disabled={!input.trim() && !attachment}>
             <Bilingual k="send" lang={lang} />
           </button>
         )}

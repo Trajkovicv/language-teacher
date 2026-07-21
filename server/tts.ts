@@ -1,0 +1,98 @@
+import './env.js';
+
+/**
+ * Azure AI Speech TTS als Server-Proxy (Phase 3b, vorgezogen wegen Mobil-Audio).
+ * Warum Server-seitig: Der Client spielt die Antwort über ein <audio>-Element ab —
+ * das routet zuverlässig zu Bluetooth-Kopfhörern und funktioniert auch in der
+ * iOS-PWA, wo window.speechSynthesis notorisch unzuverlässig ist. Außerdem gibt
+ * es echte serbische Stimmen (Latinica UND Ćirilica), die Browser nicht haben.
+ *
+ * Kostenlos: F0-Tarif = 500'000 Zeichen/Monat dauerhaft gratis (docs/recherche.md §5).
+ * Ohne AZURE_SPEECH_KEY/REGION bleibt der Endpunkt aus und der Client nutzt
+ * weiterhin die Browser-Stimmen (Fallback).
+ */
+
+export type TtsLang = 'de' | 'en' | 'sr';
+export type TtsGender = 'female' | 'male';
+
+const AZURE_KEY = process.env.AZURE_SPEECH_KEY;
+const AZURE_REGION = process.env.AZURE_SPEECH_REGION; // z. B. "westeurope"
+
+export function ttsConfigured(): boolean {
+  return Boolean(AZURE_KEY && AZURE_REGION);
+}
+
+// Stimmen: weiblich für Mila/Ana, männlich für Luka. Serbisch je nach Schrift.
+const VOICES: Record<'de' | 'en' | 'srLatn' | 'srCyrl', Record<TtsGender, string>> = {
+  de: { female: 'de-DE-KatjaNeural', male: 'de-DE-ConradNeural' },
+  en: { female: 'en-US-JennyNeural', male: 'en-US-GuyNeural' },
+  srLatn: { female: 'sr-Latn-RS-SophieNeural', male: 'sr-Latn-RS-NicholasNeural' },
+  srCyrl: { female: 'sr-RS-SophieNeural', male: 'sr-RS-NicholasNeural' },
+};
+
+function pickVoice(text: string, lang: TtsLang, gender: TtsGender): string {
+  if (lang === 'sr') {
+    const cyrillic = /[Ѐ-ӿ]/.test(text);
+    return VOICES[cyrillic ? 'srCyrl' : 'srLatn'][gender];
+  }
+  return VOICES[lang][gender];
+}
+
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// Wiederholtes Anhören (Tipp-zum-Anhören!) soll das Gratis-Kontingent nicht
+// mehrfach kosten: kleiner In-Memory-Cache, älteste Einträge fliegen zuerst.
+const cache = new Map<string, Buffer>();
+const CACHE_MAX_ENTRIES = 150;
+
+export async function synthesize(text: string, lang: TtsLang, gender: TtsGender): Promise<Buffer> {
+  if (!ttsConfigured()) throw new Error('TTS nicht konfiguriert');
+
+  const voice = pickVoice(text, lang, gender);
+  const key = `${voice}|${text}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+
+  const locale = voice.split('-').slice(0, -1).join('-');
+  // Leicht gedrosseltes Tempo — Unterricht (SSML prosody)
+  const ssml =
+    `<speak version='1.0' xml:lang='${locale}'>` +
+    `<voice name='${voice}'><prosody rate='-8%'>${escapeXml(text)}</prosody></voice></speak>`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(`https://${AZURE_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': AZURE_KEY as string,
+        'Content-Type': 'application/ssml+xml',
+        'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
+        'User-Agent': 'language-teacher-app',
+      },
+      body: ssml,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`Azure TTS HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length === 0) throw new Error('Azure TTS: leere Audio-Antwort');
+
+    if (cache.size >= CACHE_MAX_ENTRIES) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+    cache.set(key, buf);
+    return buf;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
