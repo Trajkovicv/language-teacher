@@ -27,6 +27,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Repo-Variable API_BASE_URL prüfen
+        run: |
+          test -n "${{ vars.API_BASE_URL }}" || {
+            echo "::error::Repo-Variable API_BASE_URL fehlt (Settings → Secrets and variables → Actions → Variables). Ohne sie kann die veröffentlichte App den Server nicht erreichen."
+            exit 1
+          }
       - name: Install dependencies
         run: npm ci
         working-directory: client

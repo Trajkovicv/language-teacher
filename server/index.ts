@@ -6,6 +6,10 @@ import { CLAUDE_MODEL, streamChat, type ChatMessage } from './claude.js';
 import { isCharacterName, teacherSystemPrompt } from './prompts.js';
 
 const app = express();
+// Hinter genau einem Reverse-Proxy (Render): sonst wäre req.ip für alle Nutzer
+// die Proxy-Adresse und das Pro-IP-Rate-Limit ein globales Limit.
+// Bewusst 1 statt true (true triggert die Permissiv-Warnung von express-rate-limit).
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '1mb' }));
 
 // Zusätzliche erlaubte Origins fürs Hosting (z. B. https://<name>.github.io), kommagetrennt

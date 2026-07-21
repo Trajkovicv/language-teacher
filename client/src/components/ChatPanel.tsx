@@ -14,11 +14,17 @@ type Props = {
 const MAX_INPUT_CHARS = 4000
 const HISTORY_WINDOW = 50
 
-/** Letzte N Nachrichten senden; die erste muss role 'user' haben (API-Anforderung). */
+/**
+ * Letzte N Nachrichten senden; die erste muss role 'user' haben (API-Anforderung).
+ * Inhalte werden defensiv auf das Server-Limit gekappt — sonst würde eine einzige
+ * überlange Assistant-Antwort jeden weiteren Request dauerhaft mit 400 blockieren.
+ */
 function windowForApi(history: UiMessage[]): UiMessage[] {
   let win = history.slice(-HISTORY_WINDOW)
   while (win.length > 0 && win[0].role !== 'user') win = win.slice(1)
-  return win
+  return win.map((m) =>
+    m.content.length > MAX_INPUT_CHARS ? { ...m, content: m.content.slice(0, MAX_INPUT_CHARS) } : m,
+  )
 }
 
 /**
@@ -136,7 +142,10 @@ export default function ChatPanel({ characterName, messages, setMessages }: Prop
           setMessages(baseHistory)
           setInput(text)
         }
-        setNotice(err instanceof Error && err.message && !err.message.startsWith('HTTP') ? err.message : pauseMessage)
+        // Nur Server-Meldungen anzeigen; rohe Browser-Fehler ("Failed to fetch") → Pausen-Meldung
+        setNotice(
+          err instanceof SSERequestError && !err.message.startsWith('HTTP') ? err.message : pauseMessage,
+        )
       }
     } finally {
       if (acc) setMessages((m) => [...m, { role: 'assistant', content: acc }])
