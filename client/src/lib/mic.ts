@@ -8,6 +8,11 @@ const BAR_COUNT = 9
  * Echter Mikrofonpegel für die Voice-Bar (Phase-1-Mikrofontest):
  * getUserMedia + Web-Audio-AnalyserNode. Liefert 9 Balken-Pegel (0..1)
  * fürs Wellen-Display und eine Zonen-Einstufung (zu leise / gut / übersteuert).
+ *
+ * Reentranz: start() ist über die async-Lücke des Berechtigungs-Prompts
+ * abgesichert (startingRef), und ein Generation-Token beendet verwaiste
+ * rAF-Loops bzw. macht überholte Starts ungültig — sonst könnten Doppel-Klicks
+ * einen zweiten Stream öffnen, dessen Vorgänger das Mikrofon dauerhaft belegt.
  */
 export function useMicLevels() {
   const [active, setActive] = useState(false)
@@ -18,13 +23,24 @@ export function useMicLevels() {
   const streamRef = useRef<MediaStream | null>(null)
   const ctxRef = useRef<AudioContext | null>(null)
   const rafRef = useRef<number>(0)
+  const startingRef = useRef(false)
+  const genRef = useRef(0)
 
   async function start() {
-    if (active) return
+    if (active || startingRef.current) return
+    startingRef.current = true
     setError(null)
+    const gen = ++genRef.current
+    let stream: MediaStream | null = null
+    let ctx: AudioContext | null = null
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const ctx = new AudioContext()
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (gen !== genRef.current) {
+        // Inzwischen wurde gestoppt — den frisch erworbenen Stream sofort freigeben
+        stream.getTracks().forEach((t) => t.stop())
+        return
+      }
+      ctx = new AudioContext()
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 256
@@ -38,6 +54,7 @@ export function useMicLevels() {
       const time = new Uint8Array(analyser.fftSize)
 
       const tick = () => {
+        if (gen !== genRef.current) return // Loop gehört zu einem beendeten Start
         analyser.getByteFrequencyData(freq)
         // Sprachrelevante untere Bins auf 9 Balken verteilen
         const usable = Math.floor(freq.length * 0.6)
@@ -46,7 +63,7 @@ export function useMicLevels() {
         for (let b = 0; b < BAR_COUNT; b++) {
           let sum = 0
           for (let i = 0; i < group; i++) sum += freq[b * group + i] ?? 0
-          bars.push(Math.min(1, sum / group / 255 * 1.6))
+          bars.push(Math.min(1, (sum / group / 255) * 1.6))
         }
         setLevels(bars)
 
@@ -65,11 +82,19 @@ export function useMicLevels() {
       rafRef.current = requestAnimationFrame(tick)
       setActive(true)
     } catch {
-      setError('Mikrofon nicht verfügbar — bitte Berechtigung im Browser erlauben.')
+      // Auch teilweise erworbene Ressourcen freigeben (z. B. AudioContext-Limit)
+      stream?.getTracks().forEach((t) => t.stop())
+      void ctx?.close().catch(() => {})
+      if (gen === genRef.current) {
+        setError('Mikrofon nicht verfügbar — bitte Berechtigung im Browser erlauben.')
+      }
+    } finally {
+      startingRef.current = false
     }
   }
 
   function stop() {
+    genRef.current++ // beendet laufende Loops und entwertet schwebende Starts
     cancelAnimationFrame(rafRef.current)
     streamRef.current?.getTracks().forEach((t) => t.stop())
     void ctxRef.current?.close().catch(() => {})

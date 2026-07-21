@@ -76,9 +76,13 @@ function hidePartialPrevodMarker(text: string): string {
   return text
 }
 
-/** Minimales Markdown: **fett** und *kursiv* aus Claude-Antworten hübsch rendern. */
+/**
+ * Minimales Markdown: **fett** und *kursiv* aus Claude-Antworten hübsch rendern.
+ * Sterne paaren bewusst nie über Zeilengrenzen ([^*\n]) — sonst würden
+ * *-Aufzählungen und einzelne Sterne den Text zwischen zwei Zeilen kursiv setzen.
+ */
 function renderRich(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).map((part, i) => {
+  return text.split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g).map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**') && part.length > 4) return <b key={i}>{part.slice(2, -2)}</b>
     if (part.startsWith('*') && part.endsWith('*') && part.length > 2) return <i key={i}>{part.slice(1, -1)}</i>
     return part
