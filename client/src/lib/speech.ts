@@ -166,19 +166,22 @@ export function useSpeech(serverTts: boolean) {
       } catch {
         // Speichern optional
       }
-      // Azure-Audio: Tempo LIVE ändern (playbackRate wirkt sofort, ohne neue
-      // Synthese). Browser-Stimmen können die Rate nicht live ändern → dort
-      // greift das neue Tempo ab dem nächsten Satz.
-      if (sharedAudio) sharedAudio.playbackRate = next
+      // Azure-Audio: Tempo LIVE ändern. Browser-Stimmen können die Rate nicht
+      // live ändern → dort greift das neue Tempo ab dem nächsten Satz.
+      if (sharedAudio) applyAudioRate(sharedAudio)
       return next
     })
   }
 
-  /** Tempo + Tonhöhenerhalt aufs Audio-Element anwenden (vor jedem play()). */
+  /** Tempo + Tonhöhenerhalt aufs Audio-Element anwenden.
+   *  WICHTIG: `defaultPlaybackRate` setzen — `playbackRate` allein wird von
+   *  Safari beim Nachladen einer neuen `src` (jeder Satz!) auf 1.0
+   *  zurückgesetzt; `defaultPlaybackRate` überlebt das Laden. */
   function applyAudioRate(a: HTMLAudioElement) {
-    a.playbackRate = speedRef.current
     a.preservesPitch = true
     ;(a as unknown as { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true
+    a.defaultPlaybackRate = speedRef.current
+    a.playbackRate = speedRef.current
   }
 
   /** Nur die Mundform-Timer — der resume-Heartbeat lebt weiter (Chrome-15-s-Bug). */
@@ -329,7 +332,8 @@ export function useSpeech(serverTts: boolean) {
       lastObjectUrl = URL.createObjectURL(blob)
       audio.onplaying = () => {
         if (gen !== genRef.current) return
-        logDiag('Server-Stimme spielt')
+        applyAudioRate(audio) // Safari verwirft die Rate beim Laden — hier erneut
+        logDiag(`Server-Stimme spielt (Tempo ${speedRef.current}×)`)
         startMouthRhythm(gen)
       }
       audio.onended = () => finish(gen)
@@ -554,6 +558,7 @@ export function useSpeech(serverTts: boolean) {
       const audio = getAudio()
       audio.onplaying = () => {
         if (gen !== genRef.current) return
+        applyAudioRate(audio) // Safari verwirft die Rate beim Laden — hier erneut
         startMouthRhythm(gen)
       }
       audio.onended = skip
@@ -733,6 +738,9 @@ export function useSpeech(serverTts: boolean) {
     const lines: string[] = []
     lines.push(`Modus: ${standalone ? 'installierte App (PWA)' : 'Browser-Tab'}`)
     lines.push(`Server-Stimmen (Azure): ${serverTtsRef.current ? 'AN' : 'aus — Browser-Stimmen aktiv'}`)
+    lines.push(
+      `Tempo: ${speedRef.current}× · Audio läuft mit: ${sharedAudio ? sharedAudio.playbackRate + '×' : '—'}`,
+    )
     lines.push(`Ton-Schalter: ${enabled ? 'an' : 'aus'} · entsperrt: ${primedRef.current ? 'ja' : 'noch nicht'}`)
     if (supported) {
       const voices = speechSynthesis.getVoices()
