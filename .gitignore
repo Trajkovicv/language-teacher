@@ -11,9 +11,12 @@ client/dev-dist/
 .env.*
 !.env.example
 *.local
-# Versehentlich abgelegte Schlüssel-Dateien
+# Versehentlich abgelegte Schlüssel-/Token-Dateien
 sk-ant-*.txt
 *api*key*.txt
+*key*.txt
+*token*.txt
+*secret*.txt
 
 # PRIVAT: mila.png ist ein privates Foto — bleibt lokal, wird nie veröffentlicht
 # (die App zeigt online automatisch einen Platzhalter; siehe docs/charakter-portraits-anleitung.md)
@@ -28,6 +31,12 @@ Screenshot*.png
 
 # Laufzeit-Artefakte des Dev-Setups
 .claude/scheduled_tasks.lock
+
+# Lokale libSQL/SQLite-Datei-DB (nur Dev; Produktion nutzt Turso)
+*.db
+*.db-shm
+*.db-wal
+server/local-accounts.db*
 
 # Lokale Backups (enthalten docs/ mit privaten Dateien)
 backup/

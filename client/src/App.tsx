@@ -5,17 +5,29 @@ import Sidebar, { CHARACTERS, type Character, type CharacterId } from './compone
 import ChatPanel, { type Draft, type UiMessage } from './components/ChatPanel'
 import DictionaryPanel from './components/DictionaryPanel'
 import ExercisePanel from './components/ExercisePanel'
+import LoginScreen from './components/LoginScreen'
 import { apiUrl } from './lib/api'
 import { useMicLevels } from './lib/mic'
 import { useSpeech, type SpeakOpts } from './lib/speech'
 import { loadUser, saveUser, type UserId } from './lib/users'
 import { addMinutes, loadUsage, startSession, streakOf } from './lib/usage'
+import {
+  clearSession,
+  fetchStatus,
+  loadSession,
+  saveSession,
+  type AccountStatus,
+  type Session,
+} from './lib/session'
+import { pullState } from './lib/sync'
 import type { Lang } from './lib/i18n'
 
 type Theme = 'light' | 'dusk' | 'midnight'
 type Tab = 'chat' | 'dict' | 'ex'
+// boot = warten auf /api/health; login = Konten aktiv, nicht angemeldet; app = normal
+type Phase = 'boot' | 'login' | 'app'
 
-type Health = { ok: boolean; model: string; apiKeyConfigured: boolean; tts?: boolean }
+type Health = { ok: boolean; model: string; apiKeyConfigured: boolean; tts?: boolean; db?: boolean }
 
 const THEMES: readonly Theme[] = ['light', 'dusk', 'midnight'] as const
 const THEME_TITLES: Record<Theme, string> = { light: 'Hell', dusk: 'Dämmerung', midnight: 'Mitternacht' }
@@ -43,8 +55,17 @@ export default function App() {
   const [lang, setLang] = useState<Lang>('de')
   const [tab, setTab] = useState<Tab>('chat')
   const [character, setCharacter] = useState<Character>(CHARACTERS[0])
-  // Lernprofil (Vuk/Andrijana): bestimmt Gedächtnis, Chat-Verlauf und Zielsprache
-  const [user, setUser] = useState<UserId>(loadUser)
+  // Lernprofil (Vuk/Andrijana): bestimmt Gedächtnis, Chat-Verlauf und Zielsprache.
+  // Im Konto-Modus = das angemeldete Konto; sonst der zuletzt lokal gewählte.
+  const [user, setUser] = useState<UserId>(() => loadSession()?.learner ?? loadUser())
+  // Konten (Turso): Login-Phase + Status fürs Login-UI. Quelle der Wahrheit fürs
+  // Token ist localStorage (loadSession); ohne Turso bleibt phase schlicht 'app'.
+  const [accountStatus, setAccountStatus] = useState<AccountStatus | null>(null)
+  const [phase, setPhase] = useState<Phase>('boot')
+  // Erst wenn der Konto-Stand geladen ist (oder es keinen gibt), darf die
+  // Nutzungs-Zählung starten — sonst überschriebe ein spät eintreffender
+  // pullState die frisch gezählte Sitzung.
+  const [hydrated, setHydrated] = useState(false)
   // Verläufe & Entwürfe pro LERNENDE:R und Charakter — nichts vermischt sich,
   // und der key-Remount des ChatPanels stellt beim Wechsel den richtigen wieder her.
   const [histories, setHistories] = useState<Record<UserId, Record<CharacterId, UiMessage[]>>>(() => ({
@@ -105,9 +126,76 @@ export default function App() {
       .catch(() => setHealth(null))
   }, [])
 
-  // Nutzungs-Statistik: App-Start als Sitzung zählen, dann sichtbare Übungszeit
-  // dem aktuellen Profil gutschreiben (versteckte Tabs zählen nicht).
+  // Login-Gate: Sobald /api/health da ist, entscheiden, ob Konten aktiv sind.
+  // Kein Turso (health.db falsch/unbekannt) → wie bisher lokal weiter (phase 'app').
+  // Turso + gültige Session → optimistisch rein, Serverstand im Hintergrund holen.
+  // Turso ohne Session → Login zeigen.
+  // Ref-Guard: dieser Boot-Resolver löst genau EINMAL aus — auch unter Reacts
+  // StrictMode-Doppelaufruf (er schreibt/pullt, ist also bewusst nicht wiederholbar).
+  const bootResolvedRef = useRef(false)
   useEffect(() => {
+    if (health === null || bootResolvedRef.current) return
+    bootResolvedRef.current = true
+    void (async () => {
+      if (!health.db) {
+        setPhase('app')
+        setHydrated(true) // kein Konto-Stand zu laden → sofort zählen
+        return
+      }
+      const existing = loadSession()
+      if (existing) {
+        setUser(existing.learner)
+        setPhase('app')
+        const r = await pullState(existing.learner, existing.token)
+        if (r === 'unauthorized') {
+          // Token abgelaufen/ungültig → sauber abmelden und Login zeigen
+          clearSession()
+          const st = await fetchStatus().catch(() => ({ enabled: true, registered: [] as UserId[] }))
+          setAccountStatus(st)
+          setPhase('login')
+        } else {
+          setHydrated(true) // Stand geladen (oder Server kurz weg) → jetzt zählen
+        }
+        return
+      }
+      const st = await fetchStatus().catch(() => ({ enabled: true, registered: [] as UserId[] }))
+      setAccountStatus(st)
+      setPhase('login')
+    })()
+  }, [health])
+
+  const onLogin = useCallback((s: Session) => {
+    saveSession(s)
+    setUser(s.learner)
+    saveUser(s.learner)
+    setPhase('app') // sofort in die App (pullState kann bei Kaltstart dauern)
+    // Zählung erst NACH dem Laden freigeben — so überschreibt der Serverstand
+    // die frisch gezählte Sitzung nicht.
+    void pullState(s.learner, s.token).finally(() => setHydrated(true))
+  }, [])
+
+  const onLogout = useCallback(() => {
+    voice.cancel()
+    clearSession()
+    setHydrated(false) // Zählung stoppen, bis wieder angemeldet
+    void fetchStatus()
+      .then((st) => {
+        setAccountStatus(st)
+        setPhase('login')
+      })
+      .catch(() => {
+        setAccountStatus({ enabled: true, registered: [] })
+        setPhase('login')
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Nutzungs-Statistik: erst ab Phase 'app' (nicht im Login/Boot). App-Start bzw.
+  // erfolgreicher Login zählt als Sitzung, dann sichtbare Übungszeit dem
+  // aktuellen Profil gutschreiben (versteckte Tabs zählen nicht).
+  useEffect(() => {
+    if (!hydrated) return
+    lastTickRef.current = Date.now()
     startSession(userRef.current)
     setUsageTick((v) => v + 1)
     const t = setInterval(() => {
@@ -120,7 +208,7 @@ export default function App() {
     }, 15_000)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [hydrated])
 
   const setMessagesFor = useCallback(
     (u: UserId, id: CharacterId): Dispatch<SetStateAction<UiMessage[]>> =>
@@ -172,6 +260,37 @@ export default function App() {
     : teacherBusy || voice.speaking
       ? 'teacher'
       : 'idle'
+
+  // Konto-Modus aktiv, sobald der Server Turso-Konten meldet.
+  const accountMode = health?.db === true
+
+  // Vor der App: kurzer Boot-Zustand bzw. Login-Screen (nur wenn Konten aktiv).
+  if (phase !== 'app') {
+    return (
+      <>
+        <div className="blob b1" />
+        <div className="blob b2" />
+        <div className="blob b3" />
+        {phase === 'login' && accountStatus ? (
+          <LoginScreen status={accountStatus} lang={lang} onLogin={onLogin} />
+        ) : (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--ink-soft)',
+              fontWeight: 700,
+            }}
+          >
+            {lang === 'en' ? 'Loading…' : 'Lädt…'}
+          </div>
+        )}
+      </>
+    )
+  }
 
   return (
     <>
@@ -261,6 +380,8 @@ export default function App() {
             mouth={voice.mouth}
             lang={lang}
             stats={{ minutes: Math.round(usage.minutes), messages: usage.messages, streak: streakOf(usage) }}
+            accountMode={accountMode}
+            onLogout={onLogout}
           />
 
           <section className="stage">
@@ -311,12 +432,14 @@ export default function App() {
             <DictionaryPanel
               active={tab === 'dict'}
               lang={lang}
+              user={user}
               savedWords={savedWords}
               onToggleSaved={toggleSaved}
-              onSpeak={(text) => {
+              onSpeak={(text, spokenLang) => {
                 voice.prime()
-                // explicit: gezielter Tap aufs Lautsprecher-Symbol spricht auch bei „Ton aus"
-                speakAs(text, 'sr', { force: true, explicit: true })
+                // explicit: gezielter Tap aufs Lautsprecher-Symbol spricht auch bei „Ton aus".
+                // Sprache = die des nachgeschlagenen Worts (Wort & Beispiele in source).
+                speakAs(text, spokenLang, { force: true, explicit: true })
               }}
             />
             <ExercisePanel active={tab === 'ex'} lang={lang} />

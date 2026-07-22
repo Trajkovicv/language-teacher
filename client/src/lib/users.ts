@@ -25,6 +25,26 @@ export const USERS: readonly UserProfile[] = [
   },
 ] as const
 
+// Wörterbuch-Modi pro Profil (Nutzer-Wunsch: automatisch nach Profil).
+// source = nachgeschlagene Sprache (Zielsprache der/des Lernenden),
+// explain = Sprache der Erklärungen (Muttersprache). Erster Eintrag = Standard.
+// „Serbisch bleibt zusätzlich möglich" → jeweils ein sr-Modus dabei.
+export type DictLang = 'de' | 'en' | 'sr'
+export type DictMode = { source: DictLang; explain: DictLang }
+
+export const DICT_MODES: Record<UserId, readonly DictMode[]> = {
+  // Vuk verfeinert Englisch → englische Wörter, deutsche Erklärung
+  vuk: [
+    { source: 'en', explain: 'de' },
+    { source: 'sr', explain: 'de' },
+  ],
+  // Andrijana lernt Deutsch → deutsche Wörter, serbische Erklärung
+  andrijana: [
+    { source: 'de', explain: 'sr' },
+    { source: 'sr', explain: 'de' },
+  ],
+} as const
+
 const STORAGE_KEY = 'lt-user'
 
 export function loadUser(): UserId {

@@ -13,6 +13,8 @@ import {
   type ContentBlock,
 } from './claude.js';
 import { synthesize, ttsConfigured, type TtsGender, type TtsLang } from './tts.js';
+import { createAccount, dbEnabled, getAccount, getAllState, putState, registeredLearners } from './db.js';
+import { hashPasscode, issueToken, verifyPasscode, verifyToken } from './auth.js';
 import {
   dictionarySystemPrompt,
   exerciseSystemPrompt,
@@ -73,8 +75,59 @@ const apiLimiter = rateLimit({
   message: { error: 'Zu viele Anfragen — bitte kurz warten und dann erneut senden.' },
 });
 
+// Anmeldung/Registrierung: streng limitieren (Passcode-Brute-Force-Schutz),
+// getrennt vom KI-Limit. Sync-Schreiben passiert häufiger → großzügiger.
+const authLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Zu viele Anmeldeversuche — bitte kurz warten.' },
+});
+const syncLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Zu viele Sync-Anfragen — bitte kurz warten.' },
+});
+
 function parsePrimaryLang(value: unknown): PrimaryLang {
   return value === 'en' || value === 'sr' ? value : 'de';
+}
+
+// ===== Konten (Turso) — feste Profile Vuk/Andrijana mit Passcode =====
+const MIN_PASSCODE = 4;
+const MAX_PASSCODE = 64;
+const MAX_STATE_VALUE = 60_000;
+// Erlaubte KV-Schlüssel: Nutzungs-Statistik + Lern-Gedächtnis je Charakter.
+const STATE_KEY_RE = /^(usage|memory:(mila|luka|ana))$/;
+
+function parsePasscode(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const p = value.trim();
+  return p.length >= MIN_PASSCODE && p.length <= MAX_PASSCODE ? p : null;
+}
+
+function requireDb(_req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!dbEnabled()) {
+    res.status(503).json({ error: 'Konten sind auf diesem Server nicht eingerichtet.' });
+    return;
+  }
+  next();
+}
+
+// Sitzungs-Token aus dem Authorization-Header prüfen → req.learner
+function requireAccount(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const header = req.get('Authorization') ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const learner = token ? verifyToken(token) : null;
+  if (!learner) {
+    res.status(401).json({ error: 'Bitte neu anmelden.' });
+    return;
+  }
+  (req as express.Request & { learner?: string }).learner = learner;
+  next();
 }
 
 // Tages-Ausgabenbremse (siehe claude.ts): freundlich pausieren statt Budget verbrennen
@@ -94,6 +147,7 @@ app.get('/api/health', (_req, res) => {
     model: CLAUDE_MODEL,
     apiKeyConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
     tts: ttsConfigured(),
+    db: dbEnabled(),
   });
 });
 
@@ -329,6 +383,95 @@ app.post('/api/memory', apiLimiter, requireAccessCode, requireDailyBudget, jsonS
   }
 });
 
+// ============ Konten & Geräte-Sync (Turso) ============
+
+// Welche Profile haben schon einen Passcode? Der Login-Screen zeigt danach
+// „Passcode setzen" (neu) vs. „Passcode eingeben" (vorhanden).
+app.get('/api/account/status', requireAccessCode, async (_req, res) => {
+  if (!dbEnabled()) {
+    res.json({ enabled: false, registered: [] });
+    return;
+  }
+  try {
+    res.json({ enabled: true, registered: await registeredLearners() });
+  } catch (err) {
+    console.error('[account] status:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'Konten gerade nicht erreichbar.' });
+  }
+});
+
+// Erstregistrierung eines Profils (setzt den Passcode). 409, wenn schon vergeben.
+app.post('/api/register', authLimiter, requireAccessCode, requireDb, jsonSmall, async (req, res) => {
+  const learner = isLearnerId(req.body?.learner) ? req.body.learner : null;
+  const passcode = parsePasscode(req.body?.passcode);
+  if (!learner || !passcode) {
+    res.status(400).json({ error: `Profil wählen und einen Passcode mit ${MIN_PASSCODE}–${MAX_PASSCODE} Zeichen setzen.` });
+    return;
+  }
+  try {
+    if (await getAccount(learner)) {
+      res.status(409).json({ error: 'Für dieses Profil gibt es schon einen Passcode. Bitte anmelden.' });
+      return;
+    }
+    await createAccount(learner, hashPasscode(passcode), new Date().toISOString());
+    res.json({ token: issueToken(learner), learner });
+  } catch (err) {
+    console.error('[account] register:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'Registrierung gerade nicht möglich.' });
+  }
+});
+
+// Anmeldung mit vorhandenem Passcode.
+app.post('/api/login', authLimiter, requireAccessCode, requireDb, jsonSmall, async (req, res) => {
+  const learner = isLearnerId(req.body?.learner) ? req.body.learner : null;
+  const passcode = parsePasscode(req.body?.passcode);
+  if (!learner || !passcode) {
+    res.status(400).json({ error: 'Profil und Passcode eingeben.' });
+    return;
+  }
+  try {
+    const account = await getAccount(learner);
+    // Gleiche Antwort für „kein Konto" und „falscher Passcode" (kein Nutzer-Enum)
+    if (!account || !verifyPasscode(passcode, account.passcode_hash)) {
+      res.status(401).json({ error: 'Passcode stimmt nicht.' });
+      return;
+    }
+    res.json({ token: issueToken(learner), learner });
+  } catch (err) {
+    console.error('[account] login:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'Anmeldung gerade nicht möglich.' });
+  }
+});
+
+// Gesamten Konto-Stand laden (Gedächtnis + Nutzung) — nach der Anmeldung.
+app.get('/api/state', syncLimiter, requireAccessCode, requireDb, requireAccount, async (req, res) => {
+  const learner = (req as express.Request & { learner: string }).learner;
+  try {
+    res.json({ state: await getAllState(learner) });
+  } catch (err) {
+    console.error('[state] get:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'Stand gerade nicht ladbar.' });
+  }
+});
+
+// Einen KV-Eintrag durchschreiben (Write-Through vom Client).
+app.put('/api/state', syncLimiter, requireAccessCode, requireDb, requireAccount, jsonSmall, async (req, res) => {
+  const learner = (req as express.Request & { learner: string }).learner;
+  const key = typeof req.body?.key === 'string' ? req.body.key : '';
+  const value = typeof req.body?.value === 'string' ? req.body.value : '';
+  if (!STATE_KEY_RE.test(key) || value.length > MAX_STATE_VALUE) {
+    res.status(400).json({ error: 'Ungültiger Sync-Eintrag.' });
+    return;
+  }
+  try {
+    await putState(learner, key, value, new Date().toISOString());
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[state] put:', err instanceof Error ? err.message : err);
+    res.status(502).json({ error: 'Sync gerade nicht möglich.' });
+  }
+});
+
 // ============ Sprachausgabe (Azure TTS, Phase 3b vorgezogen) ============
 
 // Eigenes Limit statt apiLimiter: Tipp-zum-Anhören darf das Chat-Kontingent
@@ -371,31 +514,34 @@ app.post('/api/tts', ttsLimiter, requireAccessCode, jsonSmall, async (req, res) 
 const DICTIONARY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['word', 'phonetic', 'cyrillic', 'partOfSpeech', 'meaning', 'synonyms', 'usageNote', 'examples', 'declension'],
+  required: ['word', 'phonetic', 'cyrillic', 'partOfSpeech', 'meaning', 'synonyms', 'usageNote', 'examples', 'forms'],
   properties: {
     word: { type: 'string' },
     phonetic: { type: 'string' },
+    // Nur für serbische Wörter gefüllt; sonst leerer String (Client blendet es aus).
     cyrillic: { type: 'string' },
     partOfSpeech: { type: 'string' },
     meaning: { type: 'string' },
     synonyms: { type: 'array', items: { type: 'string' } },
     usageNote: { type: 'string' },
+    // source = Satz in der Nachschlage-Sprache, target = Übersetzung in der Erklärsprache
     examples: {
       type: 'array',
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['sr', 'de', 'note'],
-        properties: { sr: { type: 'string' }, de: { type: 'string' }, note: { type: 'string' } },
+        required: ['source', 'target', 'note'],
+        properties: { source: { type: 'string' }, target: { type: 'string' }, note: { type: 'string' } },
       },
     },
-    declension: {
+    // Generische Formen-/Grammatiktabelle (Deklination, Konjugation, Plural …); leer, wenn unveränderlich
+    forms: {
       type: 'array',
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['case', 'form', 'example'],
-        properties: { case: { type: 'string' }, form: { type: 'string' }, example: { type: 'string' } },
+        required: ['label', 'form', 'example'],
+        properties: { label: { type: 'string' }, form: { type: 'string' }, example: { type: 'string' } },
       },
     },
   },
@@ -403,14 +549,17 @@ const DICTIONARY_SCHEMA = {
 
 app.post('/api/dictionary', apiLimiter, requireAccessCode, requireDailyBudget, jsonSmall, async (req, res) => {
   const word = typeof req.body?.word === 'string' ? req.body.word.trim() : '';
-  const primaryLang = parsePrimaryLang(req.body?.primaryLang);
+  // Sprachpaar (Profil-abhängig): sourceLang = nachgeschlagene Sprache, explainLang = Erklärsprache.
+  // Fallback auf die alte Serbisch→Deutsch-Semantik, falls Felder fehlen.
+  const sourceLang = parsePrimaryLang(req.body?.sourceLang ?? 'sr');
+  const explainLang = parsePrimaryLang(req.body?.explainLang ?? req.body?.primaryLang);
   if (!word || word.length > 60) {
     res.status(400).json({ error: 'Bitte ein Suchwort mit höchstens 60 Zeichen eingeben.' });
     return;
   }
   try {
     const entry = await createJson({
-      system: dictionarySystemPrompt(primaryLang),
+      system: dictionarySystemPrompt(sourceLang, explainLang),
       user: `Suchwort: ${word}`,
       schema: DICTIONARY_SCHEMA as unknown as Record<string, unknown>,
     });

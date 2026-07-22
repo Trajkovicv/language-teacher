@@ -19,6 +19,7 @@ export const dict = {
   usage: { de: 'Wann benutzt man was?', en: 'When to use', sr: 'Kada se šta koristi?' },
   ex2: { de: 'Beispielsätze', en: 'Examples', sr: 'Primeri' },
   decl: { de: 'Deklination (Singular)', en: 'Declension', sr: 'Deklinacija' },
+  forms: { de: 'Formen', en: 'Forms', sr: 'Oblici' },
   exhead: { de: 'Übungen', en: 'Exercises', sr: 'Vežbe' },
   create: { de: 'Erstellen', en: 'Create', sr: 'Napravi' },
 } as const

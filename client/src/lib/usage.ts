@@ -1,3 +1,4 @@
+import { pushState } from './sync'
 import type { UserId } from './users'
 
 // Nutzungs-Statistik pro Lernprofil (Vuk/Andrijana): Übungszeit, Sitzungen,
@@ -41,11 +42,14 @@ export function loadUsage(u: UserId): UsageStats {
 }
 
 function save(u: UserId, s: UsageStats): void {
+  const json = JSON.stringify(s)
   try {
-    localStorage.setItem(key(u), JSON.stringify(s))
+    localStorage.setItem(key(u), json)
   } catch {
     // Speichern optional
   }
+  // Write-Through ans Konto (nur wenn angemeldet; sonst No-Op)
+  pushState(u, 'usage', json)
 }
 
 /** App-Start bzw. Profilwechsel: als Sitzung zählen, heutigen Tag markieren. */

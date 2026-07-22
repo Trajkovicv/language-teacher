@@ -1,4 +1,5 @@
 import { accessHeaders, apiUrl } from './api'
+import { pushState } from './sync'
 import type { UserId } from './users'
 
 // Phase 2: Lern-Gedächtnis über Sitzungen.
@@ -54,11 +55,14 @@ export function loadMemory(user: UserId, character: string): MemoryRecord {
 }
 
 function saveMemory(user: UserId, character: string, rec: MemoryRecord): void {
+  const json = JSON.stringify(rec)
   try {
-    localStorage.setItem(key(user, character), JSON.stringify(rec))
+    localStorage.setItem(key(user, character), json)
   } catch {
     // Speichern optional (Privatmodus) — dann eben ohne Langzeit-Gedächtnis
   }
+  // Write-Through ans Konto (nur wenn angemeldet; sonst No-Op)
+  pushState(user, `memory:${character.toLowerCase()}`, json)
 }
 
 /** Profil für den Chat-Request (undefined, solange noch keins existiert). */

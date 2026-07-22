@@ -22,6 +22,10 @@ type Props = {
   mouth: MouthShape
   lang: Lang
   stats: { minutes: number; messages: number; streak: number }
+  // Konto-Modus (Turso aktiv + angemeldet): kein freier Umschalter mehr,
+  // stattdessen das feste Konto + „Abmelden". Sonst der lokale Umschalter.
+  accountMode?: boolean
+  onLogout?: () => void
 }
 
 /**
@@ -30,27 +34,60 @@ type Props = {
  * Fotos werden bewusst nicht mehr verwendet; in Phase 3 wird die Bühne durch
  * den Simli-Live-Video-Avatar ersetzt (<video> an gleicher Stelle).
  */
-export default function Sidebar({ character, onSelect, userId, onSelectUser, voiceState, mouth, lang, stats }: Props) {
+export default function Sidebar({
+  character,
+  onSelect,
+  userId,
+  onSelectUser,
+  voiceState,
+  mouth,
+  lang,
+  stats,
+  accountMode = false,
+  onLogout,
+}: Props) {
   const ui = lang === 'en' ? 'en' : 'de'
+  const me = USERS.find((u) => u.id === userId)
   return (
     <aside>
       {/* Lernprofil: Vuk (Englisch) / Andrijana (Deutsch) — getrenntes Gedächtnis */}
       <div className="userpick">
-        <div className="userpick-lbl">{ui === 'en' ? 'Who is learning?' : 'Wer lernt?'}</div>
-        <div className="userpick-row">
-          {USERS.map((u) => (
+        {accountMode ? (
+          // Konto-Modus: festes Konto (per Passcode angemeldet) + Abmelden
+          <div className="userpick-row" style={{ alignItems: 'center' }}>
+            <div className="userbtn active" style={{ flex: 1, cursor: 'default' }}>
+              <span className="ub-name">{me?.name}</span>
+              <span className="ub-focus">{me?.focus[ui]}</span>
+            </div>
             <button
-              key={u.id}
               type="button"
-              className={u.id === userId ? 'userbtn active' : 'userbtn'}
-              onClick={() => onSelectUser(u.id)}
-              title={u.focus[ui]}
+              className="userbtn"
+              onClick={() => onLogout?.()}
+              title={ui === 'en' ? 'Switch account' : 'Konto wechseln'}
+              style={{ flex: '0 0 auto' }}
             >
-              <span className="ub-name">{u.name}</span>
-              <span className="ub-focus">{u.focus[ui]}</span>
+              <span className="ub-focus">{ui === 'en' ? 'Sign out' : 'Abmelden'}</span>
             </button>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <>
+            <div className="userpick-lbl">{ui === 'en' ? 'Who is learning?' : 'Wer lernt?'}</div>
+            <div className="userpick-row">
+              {USERS.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  className={u.id === userId ? 'userbtn active' : 'userbtn'}
+                  onClick={() => onSelectUser(u.id)}
+                  title={u.focus[ui]}
+                >
+                  <span className="ub-name">{u.name}</span>
+                  <span className="ub-focus">{u.focus[ui]}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="hero">

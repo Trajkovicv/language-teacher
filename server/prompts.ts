@@ -177,27 +177,42 @@ REGELN:
 - Stichpunktartig dicht, keine Floskeln, keine Anrede.`;
 }
 
-/** System-Prompt für den Wörterbuch-Endpunkt (strukturierte JSON-Antwort). */
-export function dictionarySystemPrompt(primaryLang: PrimaryLang): string {
-  const lang = LANG_NAMES[primaryLang];
-  return `Du bist das Wörterbuch einer Serbisch-Lern-App für ${lang}-sprachige Lernende.
-Zu einem Suchwort lieferst du GENAU EINEN Wörterbucheintrag als JSON.
+/**
+ * System-Prompt für den Wörterbuch-Endpunkt (strukturierte JSON-Antwort).
+ * Sprachpaar-fähig: `sourceLang` = Sprache des Nachschlage-Worts (die Zielsprache
+ * der/des Lernenden), `explainLang` = Sprache der Erklärungen (Muttersprache).
+ * Beispiele: Vuk lernt Englisch → en→de; Andrijana lernt Deutsch → de→sr;
+ * Serbisch-Lookup weiterhin möglich → sr→de.
+ */
+export function dictionarySystemPrompt(sourceLang: PrimaryLang, explainLang: PrimaryLang): string {
+  const src = LANG_NAMES[sourceLang];
+  const exp = LANG_NAMES[explainLang];
+  const isSr = sourceLang === 'sr';
+  const cyrillicRule = isSr
+    ? '- "cyrillic": dasselbe Wort in Ćirilica.'
+    : `- "cyrillic": IMMER leerer String "" (nur für serbische Wörter relevant).`;
+  const latinica = isSr ? ' (Latinica)' : '';
+  return `Du bist das Wörterbuch einer Sprachlern-App. Die/der Lernende spricht
+${exp} und schlägt ${src}e Wörter nach. Zu einem Suchwort lieferst du GENAU EINEN
+Wörterbucheintrag als JSON.
 
 REGELN:
-- "word" ist IMMER die serbische Grundform (Nominativ/Infinitiv) in Latinica.
-  Ist das Suchwort deutsch oder englisch, übersetze es zuerst ins Serbische.
-  Bei Tippfehlern nimm die wahrscheinlichste gemeinte serbische Grundform.
-- "cyrillic": dasselbe Wort in Ćirilica.
+- "word" ist IMMER die ${src}e Grundform (Nominativ/Infinitiv)${latinica}.
+  Ist das Suchwort in einer anderen Sprache (z. B. ${exp}), übersetze es zuerst
+  ins ${src}e. Bei Tippfehlern nimm die wahrscheinlichste gemeinte ${src}e Grundform.
+${cyrillicRule}
 - "phonetic": einfache Silben-Aussprache mit Betonungszeichen, z. B. "[pó·ro·di·tsa]".
-- "partOfSpeech": Wortart auf ${lang}, bei Substantiven mit Genus (z. B. "Substantiv · weiblich").
-- "meaning": die Übersetzung(en) auf ${lang}, kompakt.
-- "synonyms": 2–5 serbische Synonyme oder nahe Ausdrücke (Latinica).
-- "usageNote": 1–3 Sätze auf ${lang} zu Gebrauch und Nuancen (welches Synonym wann, Register, Stolperfallen).
-- "examples": genau 3 Einträge. "sr" = natürlicher serbischer Beispielsatz (das Wort auch in
-  gebeugten Formen zeigen), "de" = Übersetzung auf ${lang}, "note" = kurzer Grammatik-/Kasushinweis
-  (z. B. "Akkusativ") oder leerer String.
-- "declension": Für deklinierbare Wörter 4–7 Zeilen mit Fall (auf ${lang}, z. B. "Nominativ"),
-  Form und Kurzbeispiel. Für Verben und unveränderliche Wörter: leeres Array.`;
+- "partOfSpeech": Wortart auf ${exp}, bei Substantiven mit Genus (z. B. "Substantiv · weiblich").
+- "meaning": die Übersetzung(en) auf ${exp}, kompakt.
+- "synonyms": 2–5 ${src}e Synonyme oder nahe Ausdrücke${latinica}.
+- "usageNote": 1–3 Sätze auf ${exp} zu Gebrauch und Nuancen (welches Synonym wann, Register, Stolperfallen).
+- "examples": genau 3 Einträge. "source" = natürlicher ${src}er Beispielsatz (das Wort auch in
+  gebeugten Formen zeigen), "target" = Übersetzung auf ${exp}, "note" = kurzer Grammatik-Hinweis
+  auf ${exp} (z. B. "Akkusativ", "Past tense") oder leerer String.
+- "forms": Für flektierbare Wörter 4–7 Zeilen mit "label" (Bezeichnung der Form auf ${exp},
+  z. B. "Nominativ", "Plural", "3. Person", "Past"), "form" (die Wortform${latinica}) und
+  "example" (Kurzbeispiel). Für unveränderliche Wörter: leeres Array.
+  ${isSr ? 'Bei serbischen Substantiven die Fälle (Deklination).' : sourceLang === 'de' ? 'Bei deutschen Substantiven Genus/Plural/wichtige Fälle, bei Verben Stammformen.' : 'Bei englischen Verben unregelmäßige Formen, bei Substantiven den Plural.'}`;
 }
 
 /** System-Prompt für den Übungs-Endpunkt (strukturierte JSON-Antwort). */
