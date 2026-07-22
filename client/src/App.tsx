@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import Icons, { Icon } from './components/Icons'
 import Bilingual from './components/Bilingual'
 import Sidebar, { CHARACTERS, type Character, type CharacterId } from './components/Sidebar'
@@ -9,6 +9,7 @@ import { apiUrl } from './lib/api'
 import { useMicLevels } from './lib/mic'
 import { useSpeech, type SpeakOpts } from './lib/speech'
 import { loadUser, saveUser, type UserId } from './lib/users'
+import { addMinutes, loadUsage, startSession, streakOf } from './lib/usage'
 import type { Lang } from './lib/i18n'
 
 type Theme = 'light' | 'dusk' | 'midnight'
@@ -37,32 +38,6 @@ function loadSavedWords(): string[] {
   }
 }
 
-/** Serien-Zähler: aufeinanderfolgende Besuchstage (lokal gespeichert). */
-function trackStreak(): number {
-  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  let days: string[] = []
-  try {
-    const raw = JSON.parse(localStorage.getItem('lt-visit-days') ?? '[]')
-    if (Array.isArray(raw)) days = raw.filter((d): d is string => typeof d === 'string')
-  } catch {
-    // kaputter Eintrag — neu beginnen
-  }
-  const today = iso(new Date())
-  if (!days.includes(today)) days.push(today)
-  try {
-    localStorage.setItem('lt-visit-days', JSON.stringify(days.slice(-60)))
-  } catch {
-    // Speichern optional
-  }
-  let streak = 0
-  const cursor = new Date()
-  while (days.includes(iso(cursor))) {
-    streak++
-    cursor.setDate(cursor.getDate() - 1)
-  }
-  return Math.max(1, streak)
-}
-
 export default function App() {
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [lang, setLang] = useState<Lang>('de')
@@ -82,11 +57,17 @@ export default function App() {
   }))
   const [teacherBusy, setTeacherBusy] = useState(false)
   const [savedWords, setSavedWords] = useState<string[]>(loadSavedWords)
-  const [minutes, setMinutes] = useState(0)
   const [health, setHealth] = useState<Health | null>(null)
-  const streak = useMemo(trackStreak, [])
+  // Nutzungs-Statistik pro Profil: alle paar Sekunden neu aus localStorage lesen
+  const [usageTick, setUsageTick] = useState(0)
+  const userRef = useRef(user)
+  userRef.current = user
+  const lastTickRef = useRef(Date.now())
   const mic = useMicLevels()
   const voice = useSpeech(health?.tts === true)
+
+  // Kernzahlen fürs UI (Minuten/Nachrichten/Serie) — pro Profil, live nachgezogen
+  const usage = useMemo(() => loadUsage(user), [user, usageTick])
 
   // Stimm-Geschlecht passend zum Charakter (Azure-Stimmen): Luka männlich
   const speakAs = useCallback(
@@ -124,11 +105,21 @@ export default function App() {
       .catch(() => setHealth(null))
   }, [])
 
-  // Sitzungs-Minuten für die Stats-Karte
+  // Nutzungs-Statistik: App-Start als Sitzung zählen, dann sichtbare Übungszeit
+  // dem aktuellen Profil gutschreiben (versteckte Tabs zählen nicht).
   useEffect(() => {
-    const start = Date.now()
-    const t = setInterval(() => setMinutes(Math.floor((Date.now() - start) / 60000)), 30_000)
+    startSession(userRef.current)
+    setUsageTick((v) => v + 1)
+    const t = setInterval(() => {
+      const now = Date.now()
+      if (document.visibilityState === 'visible') {
+        addMinutes(userRef.current, (now - lastTickRef.current) / 60000)
+      }
+      lastTickRef.current = now
+      setUsageTick((v) => v + 1)
+    }, 15_000)
     return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const setMessagesFor = useCallback(
@@ -142,9 +133,18 @@ export default function App() {
   )
 
   const selectUser = useCallback((u: UserId) => {
+    if (u === userRef.current) return
+    // bisher gesammelte Zeit noch dem ALTEN Profil gutschreiben, dann wechseln
+    const now = Date.now()
+    if (document.visibilityState === 'visible') {
+      addMinutes(userRef.current, (now - lastTickRef.current) / 60000)
+    }
+    lastTickRef.current = now
     voice.cancel() // laufende Vorlesung des anderen Profils stoppen
     setUser(u)
     saveUser(u)
+    startSession(u) // Profilwechsel zählt als neue Sitzung
+    setUsageTick((v) => v + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -260,7 +260,7 @@ export default function App() {
             voiceState={voiceState}
             mouth={voice.mouth}
             lang={lang}
-            stats={{ minutes, words: savedWords.length, streak }}
+            stats={{ minutes: Math.round(usage.minutes), messages: usage.messages, streak: streakOf(usage) }}
           />
 
           <section className="stage">

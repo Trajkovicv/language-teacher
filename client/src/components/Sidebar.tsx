@@ -21,7 +21,7 @@ type Props = {
   voiceState: 'teacher' | 'user' | 'idle'
   mouth: MouthShape
   lang: Lang
-  stats: { minutes: number; words: number; streak: number }
+  stats: { minutes: number; messages: number; streak: number }
 }
 
 /**
@@ -94,15 +94,15 @@ export default function Sidebar({ character, onSelect, userId, onSelectUser, voi
             {stats.minutes}
             <span style={{ fontSize: 11 }}>m</span>
           </div>
-          <div className="k">HEUTE</div>
+          <div className="k">MINUTEN</div>
         </div>
         <div className="stat">
-          <div className="v">{stats.words}</div>
-          <div className="k">WÖRTER</div>
+          <div className="v">{stats.messages}</div>
+          <div className="k">{ui === 'en' ? 'MESSAGES' : 'NACHRICHTEN'}</div>
         </div>
         <div className="stat">
           <div className="v fire">{stats.streak}🔥</div>
-          <div className="k">SERIE</div>
+          <div className="k">{ui === 'en' ? 'STREAK' : 'SERIE'}</div>
         </div>
       </div>
     </aside>

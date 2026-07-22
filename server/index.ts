@@ -180,10 +180,19 @@ function parseProfile(value: unknown): string | undefined {
   return p ? p.slice(0, MAX_PROFILE_CHARS) : undefined;
 }
 
+// Nutzungs-Zusammenfassung (Minuten/Sitzungen/…) vom Client — nur kurze Zahlen.
+const MAX_USAGE_CHARS = 600;
+function parseUsage(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const p = value.trim();
+  return p ? p.slice(0, MAX_USAGE_CHARS) : undefined;
+}
+
 app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig, (req, res) => {
   const messages = parseMessages(req.body);
   const character = isCharacterName(req.body?.character) ? req.body.character : 'Mila';
   const profile = parseProfile(req.body?.profile);
+  const usage = parseUsage(req.body?.usage);
   const uiLang = parsePrimaryLang(req.body?.lang);
   const learner = isLearnerId(req.body?.learner) ? req.body.learner : undefined;
   const pauseMessage = `${character} macht kurz Pause… Versuch es gleich noch einmal.`;
@@ -225,6 +234,7 @@ app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig
       learnerInstruction: learner ? learnerInstruction(learner) : undefined,
       langInstruction: languagePolicyInstruction(uiLang),
       profile,
+      usage,
       messages,
     });
   } catch (err) {

@@ -154,6 +154,7 @@ export function streamChat(opts: {
   learnerInstruction?: string;
   langInstruction?: string;
   profile?: string;
+  usage?: string;
   messages: ChatMessage[];
 }) {
   // Cache-Breakpoint auf die LETZTE Nachricht OHNE Anhang setzen: ein Anhang-Turn
@@ -183,6 +184,12 @@ export function streamChat(opts: {
     system.push({
       type: 'text',
       text: `LERN-GEDÄCHTNIS (aus früheren Sitzungen, vom System gepflegt — nutze es natürlich, statt es aufzusagen):\n${opts.profile}`,
+    });
+  }
+  if (opts.usage) {
+    system.push({
+      type: 'text',
+      text: `NUTZUNG (vom System gezählt — nenne diese Zahlen NUR, wenn der Schüler danach fragt):\n${opts.usage}`,
     });
   }
   // Zweiter Cache-Breakpoint auf dem letzten Zusatz-Block (deckt alle Zusätze ab)

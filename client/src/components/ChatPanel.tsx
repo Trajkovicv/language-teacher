@@ -3,6 +3,7 @@ import { streamSSE, SSERequestError } from '../lib/sse'
 import { apiUrl, accessHeaders, setAccessCode } from '../lib/api'
 import { useRecognition, type SpeakOpts, type VoiceSpeed } from '../lib/speech'
 import { clearMemory, getProfile, hasMemory, noteExchange } from '../lib/memory'
+import { noteMessage, usageSummary } from '../lib/usage'
 import { detectLang } from '../lib/langdetect'
 import type { UserId } from '../lib/users'
 import { Icon } from './Icons'
@@ -427,6 +428,7 @@ export default function ChatPanel({
       return
     }
     if (!text && !att) return
+    noteMessage(userId) // Nutzungs-Statistik: gesendete Nachricht zählen
     voice.prime() // Mobile: Audio innerhalb der Nutzer-Geste entsperren
     voice.cancel() // laufende Sprachausgabe stoppen, neue Runde beginnt
     rec.stop() // Erkennung nie parallel zur Antwort laufen lassen
@@ -473,6 +475,7 @@ export default function ChatPanel({
           learner: userId,
           lang,
           profile: getProfile(userId, characterName),
+          usage: usageSummary(userId),
         },
         {
           signal: controller.signal,
