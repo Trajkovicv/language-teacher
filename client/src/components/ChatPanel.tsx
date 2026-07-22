@@ -4,6 +4,7 @@ import { apiUrl, accessHeaders, setAccessCode } from '../lib/api'
 import { useRecognition, type SpeakOpts, type VoiceSpeed } from '../lib/speech'
 import { clearMemory, getProfile, hasMemory, noteExchange } from '../lib/memory'
 import { detectLang } from '../lib/langdetect'
+import type { UserId } from '../lib/users'
 import { Icon } from './Icons'
 import Bilingual from './Bilingual'
 import VoiceBar from './VoiceBar'
@@ -110,9 +111,12 @@ type VoiceProps = {
   enabled: boolean
   supported: boolean
   speaking: boolean
+  paused: boolean
   srVoiceMissing: boolean
   speed: VoiceSpeed
   cycleSpeed: () => void
+  pauseResume: () => void
+  replay: () => void
   toggle: () => void
   speak: (text: string, lang: Lang, opts?: SpeakOpts) => boolean
   speakStream: (text: string, lang: Lang, opts?: SpeakOpts) => boolean
@@ -152,6 +156,7 @@ type Props = {
   active: boolean
   lang: Lang
   characterName: string
+  userId: UserId
   messages: UiMessage[]
   setMessages: Dispatch<SetStateAction<UiMessage[]>>
   draft: Draft
@@ -255,6 +260,7 @@ export default function ChatPanel({
   active,
   lang,
   characterName,
+  userId,
   messages,
   setMessages,
   draft,
@@ -464,8 +470,9 @@ export default function ChatPanel({
         {
           messages: windowForApi(history, att),
           character: characterName,
+          learner: userId,
           lang,
-          profile: getProfile(characterName),
+          profile: getProfile(userId, characterName),
         },
         {
           signal: controller.signal,
@@ -535,7 +542,7 @@ export default function ChatPanel({
         // Lern-Gedächtnis fortschreiben (persistierter Puffer, fire-and-forget).
         // Anhänge als Text-Marker, damit der Summarizer den Kontext kennt.
         const userForMemory = att ? `[${att.kind === 'image' ? 'Bild' : 'PDF'}: ${att.name}] ${text}`.trim() : text
-        noteExchange(characterName, userForMemory, acc)
+        noteExchange(userId, characterName, userForMemory, acc)
       }
       if (truncated) setNotice('Die Antwort wurde wegen des Token-Limits gekürzt.')
     }
@@ -572,7 +579,7 @@ export default function ChatPanel({
         {messages.length === 0 && !busy && (
           <p className="chat-hint">
             Schreib {characterName} etwas — z.&nbsp;B. »Zdravo!« oder »Ich möchte Serbisch lernen«.
-            {hasMemory(characterName) && (
+            {hasMemory(userId, characterName) && (
               <>
                 <br />
                 <span className="mem-hint">
@@ -582,7 +589,7 @@ export default function ChatPanel({
                     className="mem-clear"
                     onClick={() => {
                       if (window.confirm(`Lern-Gedächtnis von ${characterName} wirklich löschen? Niveau, Themen und Fehlerprofil gehen verloren.`)) {
-                        clearMemory(characterName)
+                        clearMemory(userId, characterName)
                         setNotice('Lern-Gedächtnis gelöscht — die nächste Sitzung beginnt bei null.')
                       }
                     }}
@@ -696,8 +703,12 @@ export default function ChatPanel({
         voiceEnabled={voice.enabled}
         voiceSupported={voice.supported}
         voiceSpeed={voice.speed}
+        speaking={voice.speaking}
+        paused={voice.paused}
         onVoiceToggle={voice.toggle}
         onSpeedToggle={voice.cycleSpeed}
+        onPauseResume={voice.pauseResume}
+        onReplay={voice.replay}
       />
 
       {/* Profi-Diktat: Aufnahme-Leiste — pausieren/weitersprechen, senden erst per Knopf */}

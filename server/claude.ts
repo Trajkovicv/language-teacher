@@ -151,6 +151,7 @@ export async function createMemoryProfile(opts: {
 
 export function streamChat(opts: {
   system: string;
+  learnerInstruction?: string;
   langInstruction?: string;
   profile?: string;
   messages: ChatMessage[];
@@ -170,6 +171,11 @@ export function streamChat(opts: {
   const system: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [
     { type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } },
   ];
+  // Reihenfolge nach Stabilität (Cache-Präfix): Lernprofil (ändert sich pro User,
+  // selten) vor Sprachregel (pro Nachricht) vor Gedächtnis (alle paar Turns).
+  if (opts.learnerInstruction) {
+    system.push({ type: 'text', text: opts.learnerInstruction });
+  }
   if (opts.langInstruction) {
     system.push({ type: 'text', text: opts.langInstruction });
   }

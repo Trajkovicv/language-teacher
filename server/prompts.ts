@@ -9,6 +9,56 @@ export function isCharacterName(value: unknown): value is CharacterName {
   return typeof value === 'string' && (CHARACTERS as readonly string[]).includes(value);
 }
 
+// ===== Feste Lernprofile (Nutzer-Wunsch): Vuk & Andrijana =====
+// Client sendet nur die ID; die Profiltexte leben hier (nicht als frei
+// wählbarer Client-Text — kein Prompt-Injection-Vektor).
+export type LearnerId = 'vuk' | 'andrijana';
+
+type LearnerCfg = { name: string; target: string; targetLevel: string; note: string };
+const LEARNERS: Record<LearnerId, LearnerCfg> = {
+  vuk: {
+    name: 'Vuk',
+    target: 'Englisch',
+    targetLevel: 'fortgeschritten (C1→C2)',
+    note:
+      'Er spricht Deutsch, Englisch und Serbisch fließend (Muttersprachen Deutsch und Serbisch). ' +
+      'Behandle ihn als fortgeschrittenen Englisch-Lerner: korrigiere auch feine Unnatürlichkeiten, ' +
+      'biete idiomatischere und elegantere Formulierungen an, erkläre Nuancen, Kollokationen und Stil. ' +
+      'Keine Anfänger-Erklärungen — fordere ihn. Grammatik/Feedback kannst du auf Deutsch oder Serbisch erklären.',
+  },
+  andrijana: {
+    name: 'Andrijana',
+    target: 'Deutsch',
+    targetLevel: 'im Aufbau',
+    note:
+      'Sie spricht perfekt Serbisch (Muttersprache) und lernt Deutsch. Führe sie geduldig durch ' +
+      'Grammatik und Wortschatz, erkläre bei Bedarf auf Serbisch, passe das Tempo an, lobe Fortschritte ' +
+      'konkret und korrigiere freundlich mit kurzem Warum.',
+  },
+};
+
+export function isLearnerId(value: unknown): value is LearnerId {
+  return value === 'vuk' || value === 'andrijana';
+}
+
+/** Fest hinterlegter Lernkontext (Name + Zielsprache) als eigener System-Block. */
+export function learnerInstruction(id: LearnerId): string {
+  const c = LEARNERS[id];
+  return `LERNENDE:R (fest vom System hinterlegt — nicht aus dem Chat abgeleitet, hat Vorrang):
+- Name: ${c.name}. Sprich ${c.name} direkt und persönlich mit dem Namen an.
+- ZIELSPRACHE: ${c.target} (${c.targetLevel}). ${c.note}
+- Du kennst Ziel und Niveau bereits — frag NICHT danach, sondern leg direkt los.
+- Die Antwortsprachen-Regel bleibt: antworte in der Sprache der letzten Nachricht.
+  Ermutige ${c.name} aber, in ${c.target} zu schreiben, und gib in ${c.target}
+  verfassten Nachrichten besonders sorgfältiges, konkretes Feedback.`;
+}
+
+/** Eine Kontextzeile für den Gedächtnis-Summarizer (Zielsprache). */
+export function learnerMemoryLine(id: LearnerId): string {
+  const c = LEARNERS[id];
+  return `Lernende:r: ${c.name}. Zielsprache: ${c.target}. Verfolge Fortschritt und Fehlerprofil in der Zielsprache ${c.target}.`;
+}
+
 // System-Prompt aus der Planung (wörtlich), parametrisiert mit dem Charakternamen.
 export function teacherSystemPrompt(characterName: CharacterName, opts?: { serverTts?: boolean }): string {
   const srVoiceLine = opts?.serverTts
@@ -93,18 +143,19 @@ export function languagePolicyInstruction(uiLang: PrimaryLang): string {
 }
 
 /** System-Prompt für die Lern-Gedächtnis-Zusammenfassung (Phase 2, claude-haiku). */
-export function memorySystemPrompt(characterName: CharacterName): string {
-  return `Du pflegst das LERN-GEDÄCHTNIS einer Serbisch-Lern-App. Der Lehrer heißt
-${characterName}. Du bekommst das bisherige Profil (kann leer sein) und die
-jüngsten Chat-Nachrichten. Schreibe das Profil NEU als EINEN kompakten
-deutschen Text (max. 900 Zeichen) im Feld "profil".
+export function memorySystemPrompt(characterName: CharacterName, learnerLine?: string): string {
+  return `Du pflegst das LERN-GEDÄCHTNIS einer Sprachlern-App. Der Lehrer heißt
+${characterName}. ${learnerLine ?? ''}
+Du bekommst das bisherige Profil (kann leer sein) und die jüngsten Chat-
+Nachrichten. Schreibe das Profil NEU als EINEN kompakten deutschen Text
+(max. 900 Zeichen) im Feld "profil".
 
 INHALT (nur was belegt ist, nichts erfinden):
-- Niveau & bevorzugte Erklärsprache; Latinica oder Ćirilica.
-- Zuletzt behandelte Themen/Vokabelfelder (konkret, z. B. "Familie, Akkusativ").
-- FEHLERPROFIL: wiederkehrende konkrete Fehler (z. B. "vergisst Akkusativ-Endung
-  -u bei femininen Substantiven"), mit Beispiel wenn möglich. Das ist der
-  wichtigste Teil.
+- Niveau & bevorzugte Erklärsprache.
+- Zuletzt behandelte Themen/Vokabelfelder (konkret, z. B. "Familie, Akkusativ"
+  bzw. "Perfekt mit haben/sein", "Phrasal Verbs").
+- FEHLERPROFIL: wiederkehrende konkrete Fehler in der ZIELSPRACHE, mit Beispiel
+  wenn möglich. Das ist der wichtigste Teil.
 - Stärken/Fortschritte (konkret loben können).
 - Nächste sinnvolle Schritte.
 

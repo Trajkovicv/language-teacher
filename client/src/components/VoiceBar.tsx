@@ -12,8 +12,12 @@ type Props = {
   voiceEnabled: boolean
   voiceSupported: boolean
   voiceSpeed: VoiceSpeed
+  speaking: boolean
+  paused: boolean
   onVoiceToggle: () => void
   onSpeedToggle: () => void
+  onPauseResume: () => void
+  onReplay: () => void
 }
 
 const ZONE_HINT: Record<MicZone, string> = {
@@ -35,8 +39,12 @@ export default function VoiceBar({
   voiceEnabled,
   voiceSupported,
   voiceSpeed,
+  speaking,
+  paused,
   onVoiceToggle,
   onSpeedToggle,
+  onPauseResume,
+  onReplay,
 }: Props) {
   const state = mode === 'user' ? 'user' : mode === 'teacher' ? 'mila' : 'idle'
 
@@ -87,6 +95,23 @@ export default function VoiceBar({
         <span className={hintClass}>{hint}</span>
       ) : (
         <span className="vctrl">
+          {/* Live-Steuerung, während der Avatar spricht: von vorn + Pause/Weiter */}
+          {speaking && (
+            <>
+              <button type="button" className="vhint vhint-btn vspeed" onClick={onReplay} title="Von vorn · Ispočetka" aria-label="Von vorn abspielen">
+                ⏮
+              </button>
+              <button
+                type="button"
+                className="vhint vhint-btn vspeed"
+                onClick={onPauseResume}
+                title={paused ? 'Weiter · Nastavi' : 'Pause'}
+                aria-label={paused ? 'Weiter abspielen' : 'Pause'}
+              >
+                {paused ? '▶' : '⏸'}
+              </button>
+            </>
+          )}
           {voiceSupported && voiceEnabled && (
             <button
               type="button"

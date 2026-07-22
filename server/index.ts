@@ -12,12 +12,15 @@ import {
   type ChatMessage,
   type ContentBlock,
 } from './claude.js';
-import { synthesize, ttsConfigured, type TtsGender, type TtsLang, type TtsSpeed } from './tts.js';
+import { synthesize, ttsConfigured, type TtsGender, type TtsLang } from './tts.js';
 import {
   dictionarySystemPrompt,
   exerciseSystemPrompt,
   isCharacterName,
+  isLearnerId,
   languagePolicyInstruction,
+  learnerInstruction,
+  learnerMemoryLine,
   memorySystemPrompt,
   teacherSystemPrompt,
   type PrimaryLang,
@@ -182,6 +185,7 @@ app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig
   const character = isCharacterName(req.body?.character) ? req.body.character : 'Mila';
   const profile = parseProfile(req.body?.profile);
   const uiLang = parsePrimaryLang(req.body?.lang);
+  const learner = isLearnerId(req.body?.learner) ? req.body.learner : undefined;
   const pauseMessage = `${character} macht kurz Pause… Versuch es gleich noch einmal.`;
 
   if (!messages) {
@@ -218,6 +222,7 @@ app.post('/api/chat', apiLimiter, requireAccessCode, requireDailyBudget, jsonBig
   try {
     stream = streamChat({
       system: teacherSystemPrompt(character, { serverTts: ttsConfigured() }),
+      learnerInstruction: learner ? learnerInstruction(learner) : undefined,
       langInstruction: languagePolicyInstruction(uiLang),
       profile,
       messages,
@@ -284,6 +289,7 @@ const MEMORY_MSG_CHARS = 2200;
 
 app.post('/api/memory', apiLimiter, requireAccessCode, requireDailyBudget, jsonSmall, async (req, res) => {
   const character = isCharacterName(req.body?.character) ? req.body.character : 'Mila';
+  const learner = isLearnerId(req.body?.learner) ? req.body.learner : undefined;
   const oldProfile = parseProfile(req.body?.profile);
   const raw = req.body?.messages;
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MEMORY_MAX_MESSAGES) {
@@ -301,7 +307,7 @@ app.post('/api/memory', apiLimiter, requireAccessCode, requireDailyBudget, jsonS
   }
   try {
     const profil = await createMemoryProfile({
-      system: memorySystemPrompt(character),
+      system: memorySystemPrompt(character, learner ? learnerMemoryLine(learner) : undefined),
       user:
         `BISHERIGES PROFIL:\n${oldProfile ?? '(noch keins — erste Sitzung)'}\n\n` +
         `JÜNGSTE NACHRICHTEN:\n${lines.join('\n')}`,
@@ -336,13 +342,12 @@ app.post('/api/tts', ttsLimiter, requireAccessCode, jsonSmall, async (req, res) 
   const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
   const lang: TtsLang = req.body?.lang === 'en' || req.body?.lang === 'sr' ? req.body.lang : 'de';
   const gender: TtsGender = req.body?.gender === 'male' ? 'male' : 'female';
-  const speed: TtsSpeed = req.body?.speed === 1.5 || req.body?.speed === 2 ? req.body.speed : 1;
   if (!text || text.length > MAX_TTS_CHARS) {
     res.status(400).json({ error: `Text fehlt oder ist länger als ${MAX_TTS_CHARS} Zeichen.` });
     return;
   }
   try {
-    const audio = await synthesize(text, lang, gender, speed);
+    const audio = await synthesize(text, lang, gender);
     res.set('Content-Type', 'audio/mpeg');
     res.send(audio);
   } catch (err) {

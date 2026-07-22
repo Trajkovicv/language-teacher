@@ -377,3 +377,12 @@ table.decl td:first-child{font-weight:700}table.decl td:last-child{color:var(--i
 .exlib-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
 .exlib-count{font-size:11.5px;font-weight:800;color:var(--ink-soft);letter-spacing:.3px;flex-shrink:0}
 .exlib-nav{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px}
+/* ===== Lernprofil-Umschalter (Vuk / Andrijana) ===== */
+.userpick{margin-bottom:14px}
+.userpick-lbl{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-soft);margin-bottom:7px}
+.userpick-row{display:flex;gap:8px}
+.userbtn{flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:9px 12px;border:1.5px solid var(--line);background:var(--card-2);border-radius:13px;cursor:pointer;font-family:inherit;text-align:left}
+.userbtn .ub-name{font-size:14px;font-weight:800;color:var(--ink)}
+.userbtn .ub-focus{font-size:10.5px;font-weight:700;color:var(--ink-soft)}
+.userbtn.active{background:linear-gradient(135deg,var(--brand1),var(--brand2));border-color:transparent;box-shadow:0 6px 16px var(--glow)}
+.userbtn.active .ub-name,.userbtn.active .ub-focus{color:#fff}

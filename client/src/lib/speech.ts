@@ -130,6 +130,14 @@ export function useSpeech(serverTts: boolean) {
   const serverQueueRef = useRef<Array<{ text: string; lang: Lang; gender: VoiceGender; url: Promise<string | null> }>>([])
   const serverPlayingRef = useRef(false)
   const chunkAbortsRef = useRef<AbortController[]>([])
+  // Pause/Weiter (Nutzer-Wunsch): pausedRef unterscheidet Nutzer-Pause von
+  // System-Pause (Anruf/Sperrbildschirm), die die Wiedergabe beenden soll.
+  const [paused, setPaused] = useState(false)
+  const pausedRef = useRef(false)
+  // „Von vorn": der zuletzt gesprochene Text als Ganzes (für Replay).
+  const spokenBufRef = useRef('')
+  const spokenLangRef = useRef<Lang>('de')
+  const spokenGenderRef = useRef<VoiceGender>('female')
   const [enabled, setEnabled] = useState(() => {
     try {
       return localStorage.getItem('lt-voice') !== 'off'
@@ -152,13 +160,25 @@ export function useSpeech(serverTts: boolean) {
   function cycleSpeed() {
     setSpeed((prev) => {
       const next: VoiceSpeed = prev === 1 ? 1.5 : prev === 1.5 ? 2 : 1
+      speedRef.current = next // sofort, nicht erst nach Re-Render
       try {
         localStorage.setItem('lt-voice-speed', String(next))
       } catch {
         // Speichern optional
       }
+      // Azure-Audio: Tempo LIVE ändern (playbackRate wirkt sofort, ohne neue
+      // Synthese). Browser-Stimmen können die Rate nicht live ändern → dort
+      // greift das neue Tempo ab dem nächsten Satz.
+      if (sharedAudio) sharedAudio.playbackRate = next
       return next
     })
+  }
+
+  /** Tempo + Tonhöhenerhalt aufs Audio-Element anwenden (vor jedem play()). */
+  function applyAudioRate(a: HTMLAudioElement) {
+    a.playbackRate = speedRef.current
+    a.preservesPitch = true
+    ;(a as unknown as { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true
   }
 
   /** Nur die Mundform-Timer — der resume-Heartbeat lebt weiter (Chrome-15-s-Bug). */
@@ -205,7 +225,7 @@ export function useSpeech(serverTts: boolean) {
     warm()
     speechSynthesis.addEventListener('voiceschanged', warm)
     const wake = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && !pausedRef.current) {
         try {
           speechSynthesis.resume()
         } catch {
@@ -286,6 +306,8 @@ export function useSpeech(serverTts: boolean) {
     clearTimers()
     setMouth('rest')
     setSpeaking(false)
+    pausedRef.current = false
+    setPaused(false)
   }
 
   /** Weg 1: Azure-Audio vom eigenen Server über das entsperrte <audio>-Element. */
@@ -296,7 +318,7 @@ export function useSpeech(serverTts: boolean) {
       const res = await fetch(apiUrl('/api/tts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...accessHeaders() },
-        body: JSON.stringify({ text, lang, gender, speed: speedRef.current }),
+        body: JSON.stringify({ text, lang, gender }),
         signal: controller.signal,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -312,9 +334,10 @@ export function useSpeech(serverTts: boolean) {
       }
       audio.onended = () => finish(gen)
       // OS-Pause (Sperrbildschirm, Anruf, App-Wechsel auf iOS): weder ended noch
-      // error feuern — ohne diesen Handler bliebe speaking/Mundrhythmus hängen
+      // error feuern — beendet die Wiedergabe. Eine NUTZER-Pause (pausedRef)
+      // darf das NICHT auslösen — sonst ließe sich nicht fortsetzen.
       audio.onpause = () => {
-        if (!audio.ended && gen === genRef.current) {
+        if (!audio.ended && !pausedRef.current && gen === genRef.current) {
           logDiag('Audio pausiert (System) — Wiedergabe beendet')
           finish(gen)
         }
@@ -324,6 +347,7 @@ export function useSpeech(serverTts: boolean) {
         finish(gen)
       }
       audio.src = lastObjectUrl
+      applyAudioRate(audio)
       await audio.play()
     } catch (err) {
       if (controller.signal.aborted || gen !== genRef.current) return
@@ -356,7 +380,9 @@ export function useSpeech(serverTts: boolean) {
       setSpeaking(true)
       // Chrome-Bug: lange Äußerungen verstummen nach ~15 s, wenn nicht
       // regelmäßig resume() gerufen wird — harmlos auf anderen Plattformen.
-      heartbeatRef.current = window.setInterval(() => speechSynthesis.resume(), 10_000)
+      heartbeatRef.current = window.setInterval(() => {
+        if (!pausedRef.current) speechSynthesis.resume()
+      }, 10_000)
       // Fallback-Rhythmus, falls die Stimme keine Wort-Grenz-Events liefert
       timersRef.current.push(
         window.setTimeout(() => {
@@ -430,7 +456,9 @@ export function useSpeech(serverTts: boolean) {
       if (gen !== genRef.current) return
       boundarySeenRef.current = false
       if (!heartbeatRef.current) {
-        heartbeatRef.current = window.setInterval(() => speechSynthesis.resume(), 10_000)
+        heartbeatRef.current = window.setInterval(() => {
+        if (!pausedRef.current) speechSynthesis.resume()
+      }, 10_000)
       }
       timersRef.current.push(
         window.setTimeout(() => {
@@ -484,7 +512,7 @@ export function useSpeech(serverTts: boolean) {
     const url = fetch(apiUrl('/api/tts'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...accessHeaders() },
-      body: JSON.stringify({ text, lang, gender, speed: speedRef.current }),
+      body: JSON.stringify({ text, lang, gender }),
       signal: ctl.signal,
     })
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -530,9 +558,10 @@ export function useSpeech(serverTts: boolean) {
       }
       audio.onended = skip
       audio.onerror = skip
-      // OS-Pause (Anruf/Sperrbildschirm): kompletten Sprech-Stream beenden
+      // OS-Pause (Anruf/Sperrbildschirm): Sprech-Stream beenden. NUTZER-Pause
+      // (pausedRef) hält nur an — die Warteschlange läuft nach Weiter weiter.
       audio.onpause = () => {
-        if (!audio.ended && gen === genRef.current) {
+        if (!audio.ended && !pausedRef.current && gen === genRef.current) {
           logDiag('Audio pausiert (System) — Mitsprechen beendet')
           serverQueueRef.current = []
           unfinishedRef.current = 0
@@ -542,6 +571,7 @@ export function useSpeech(serverTts: boolean) {
         }
       }
       audio.src = url
+      applyAudioRate(audio)
       try {
         await audio.play()
       } catch {
@@ -562,8 +592,13 @@ export function useSpeech(serverTts: boolean) {
       stopPlayback()
       streamActiveRef.current = true
       streamEndedRef.current = false
+      spokenBufRef.current = '' // neue Antwort → Replay-Puffer zurücksetzen
       setSpeaking(true)
     }
+    // Für „Von vorn": den gesamten gesprochenen Text mitschreiben
+    spokenBufRef.current = spokenBufRef.current ? `${spokenBufRef.current} ${t}` : t
+    spokenLangRef.current = lang
+    spokenGenderRef.current = opts?.gender ?? 'female'
     const gen = genRef.current
     unfinishedRef.current++
     if (serverTtsRef.current) {
@@ -597,6 +632,8 @@ export function useSpeech(serverTts: boolean) {
     streamEndedRef.current = false
     unfinishedRef.current = 0
     firstChunkRef.current = true
+    pausedRef.current = false
+    setPaused(false)
     if (sharedAudio && !sharedAudio.paused) sharedAudio.pause()
     if (supported) speechSynthesis.cancel()
     liveUtterances.clear()
@@ -610,6 +647,10 @@ export function useSpeech(serverTts: boolean) {
     const trimmed = cleanForSpeech(text).slice(0, MAX_SPEAK_CHARS)
     if (!trimmed) return false
     stopPlayback()
+    // Für „Von vorn": diesen Text als Replay-Puffer merken
+    spokenBufRef.current = trimmed
+    spokenLangRef.current = lang
+    spokenGenderRef.current = opts.gender ?? 'female'
     const gen = genRef.current
     if (serverTtsRef.current) {
       setSpeaking(true) // sofortiges Feedback, während das Audio lädt
@@ -617,6 +658,35 @@ export function useSpeech(serverTts: boolean) {
       return true
     }
     return speakViaBrowser(trimmed, lang, opts.force ?? false, gen, opts.gender ?? 'female')
+  }
+
+  /** Pause ⇄ Weiter, während der Avatar spricht (Nutzer-Wunsch). */
+  function pauseResume() {
+    if (pausedRef.current) {
+      pausedRef.current = false
+      setPaused(false)
+      if (serverTtsRef.current && sharedAudio && sharedAudio.paused && sharedAudio.src) {
+        void sharedAudio.play().catch(() => {})
+      } else if (supported) {
+        speechSynthesis.resume()
+      }
+    } else {
+      if (!speaking) return // nichts läuft → nichts zu pausieren
+      pausedRef.current = true
+      setPaused(true)
+      if (serverTtsRef.current && sharedAudio && !sharedAudio.paused) {
+        sharedAudio.pause()
+      } else if (supported) {
+        speechSynthesis.pause()
+      }
+    }
+  }
+
+  /** „Von vorn": die zuletzt gesprochene Antwort komplett neu abspielen. */
+  function replay() {
+    const text = spokenBufRef.current.trim()
+    if (!text) return
+    speakInternal(text, spokenLangRef.current, { gender: spokenGenderRef.current, explicit: true })
   }
 
   /**
@@ -684,10 +754,13 @@ export function useSpeech(serverTts: boolean) {
     supported,
     enabled,
     speaking,
+    paused,
     mouth,
     srVoiceMissing,
     speed,
     cycleSpeed,
+    pauseResume,
+    replay,
     speak,
     speakStream,
     endSpeakStream,

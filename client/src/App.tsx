@@ -8,6 +8,7 @@ import ExercisePanel from './components/ExercisePanel'
 import { apiUrl } from './lib/api'
 import { useMicLevels } from './lib/mic'
 import { useSpeech, type SpeakOpts } from './lib/speech'
+import { loadUser, saveUser, type UserId } from './lib/users'
 import type { Lang } from './lib/i18n'
 
 type Theme = 'light' | 'dusk' | 'midnight'
@@ -21,6 +22,10 @@ const THEME_TITLES: Record<Theme, string> = { light: 'Hell', dusk: 'Dämmerung',
 function loadTheme(): Theme {
   const t = localStorage.getItem('lt-theme')
   return t === 'dusk' || t === 'midnight' ? t : 'light'
+}
+
+function emptyDraft(): Draft {
+  return { input: '', attachment: null }
 }
 
 function loadSavedWords(): string[] {
@@ -63,13 +68,18 @@ export default function App() {
   const [lang, setLang] = useState<Lang>('de')
   const [tab, setTab] = useState<Tab>('chat')
   const [character, setCharacter] = useState<Character>(CHARACTERS[0])
-  const [histories, setHistories] = useState<Record<CharacterId, UiMessage[]>>({ mila: [], luka: [], ana: [] })
-  // Entwürfe (Text + Anhang) pro Charakter — überleben den key-Remount des ChatPanels
-  const [drafts, setDrafts] = useState<Record<CharacterId, Draft>>({
-    mila: { input: '', attachment: null },
-    luka: { input: '', attachment: null },
-    ana: { input: '', attachment: null },
-  })
+  // Lernprofil (Vuk/Andrijana): bestimmt Gedächtnis, Chat-Verlauf und Zielsprache
+  const [user, setUser] = useState<UserId>(loadUser)
+  // Verläufe & Entwürfe pro LERNENDE:R und Charakter — nichts vermischt sich,
+  // und der key-Remount des ChatPanels stellt beim Wechsel den richtigen wieder her.
+  const [histories, setHistories] = useState<Record<UserId, Record<CharacterId, UiMessage[]>>>(() => ({
+    vuk: { mila: [], luka: [], ana: [] },
+    andrijana: { mila: [], luka: [], ana: [] },
+  }))
+  const [drafts, setDrafts] = useState<Record<UserId, Record<CharacterId, Draft>>>(() => ({
+    vuk: { mila: emptyDraft(), luka: emptyDraft(), ana: emptyDraft() },
+    andrijana: { mila: emptyDraft(), luka: emptyDraft(), ana: emptyDraft() },
+  }))
   const [teacherBusy, setTeacherBusy] = useState(false)
   const [savedWords, setSavedWords] = useState<string[]>(loadSavedWords)
   const [minutes, setMinutes] = useState(0)
@@ -122,14 +132,21 @@ export default function App() {
   }, [])
 
   const setMessagesFor = useCallback(
-    (id: CharacterId): Dispatch<SetStateAction<UiMessage[]>> =>
+    (u: UserId, id: CharacterId): Dispatch<SetStateAction<UiMessage[]>> =>
       (update) =>
         setHistories((h) => ({
           ...h,
-          [id]: typeof update === 'function' ? update(h[id]) : update,
+          [u]: { ...h[u], [id]: typeof update === 'function' ? update(h[u][id]) : update },
         })),
     [],
   )
+
+  const selectUser = useCallback((u: UserId) => {
+    voice.cancel() // laufende Vorlesung des anderen Profils stoppen
+    setUser(u)
+    saveUser(u)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const toggleSaved = useCallback((word: string) => {
     setSavedWords((words) => {
@@ -238,6 +255,8 @@ export default function App() {
           <Sidebar
             character={character}
             onSelect={setCharacter}
+            userId={user}
+            onSelectUser={selectUser}
             voiceState={voiceState}
             mouth={voice.mouth}
             lang={lang}
@@ -246,15 +265,19 @@ export default function App() {
 
           <section className="stage">
             <ChatPanel
-              key={character.id}
+              key={`${user}-${character.id}`}
               active={tab === 'chat'}
               lang={lang}
               characterName={character.name}
-              messages={histories[character.id]}
-              setMessages={setMessagesFor(character.id)}
-              draft={drafts[character.id]}
+              userId={user}
+              messages={histories[user][character.id]}
+              setMessages={setMessagesFor(user, character.id)}
+              draft={drafts[user][character.id]}
               onDraftChange={(update) =>
-                setDrafts((d) => ({ ...d, [character.id]: update(d[character.id]) }))
+                setDrafts((d) => ({
+                  ...d,
+                  [user]: { ...d[user], [character.id]: update(d[user][character.id]) },
+                }))
               }
               onBusyChange={setTeacherBusy}
               warning={warning}
@@ -273,7 +296,10 @@ export default function App() {
                 srVoiceMissing: voice.srVoiceMissing,
                 speed: voice.speed,
                 cycleSpeed: voice.cycleSpeed,
+                pauseResume: voice.pauseResume,
+                replay: voice.replay,
                 speaking: voice.speaking,
+                paused: voice.paused,
                 toggle: voice.toggle,
                 speak: speakAs,
                 speakStream: speakStreamAs,

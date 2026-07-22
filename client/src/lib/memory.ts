@@ -1,4 +1,5 @@
 import { accessHeaders, apiUrl } from './api'
+import type { UserId } from './users'
 
 // Phase 2: Lern-Gedächtnis über Sitzungen.
 // Bewusste Abweichung von „SQLite auf dem Server" (docs/recherche.md §5):
@@ -28,11 +29,12 @@ const UPDATE_AT_MESSAGES = 10
 const TRANSCRIPT_WINDOW = 16
 const MSG_CHARS = 2000
 
-const key = (character: string) => `lt-memory-${character.toLowerCase()}`
+// Pro LERNENDE:R und Charakter getrennt — Vuk und Andrijana vermischen nichts.
+const key = (user: UserId, character: string) => `lt-memory-${user}-${character.toLowerCase()}`
 
-export function loadMemory(character: string): MemoryRecord {
+export function loadMemory(user: UserId, character: string): MemoryRecord {
   try {
-    const raw = JSON.parse(localStorage.getItem(key(character)) ?? 'null') as Partial<MemoryRecord> | null
+    const raw = JSON.parse(localStorage.getItem(key(user, character)) ?? 'null') as Partial<MemoryRecord> | null
     if (raw && typeof raw.profile === 'string') {
       return {
         profile: raw.profile,
@@ -51,30 +53,30 @@ export function loadMemory(character: string): MemoryRecord {
   return { ...EMPTY, pending: [] }
 }
 
-function saveMemory(character: string, rec: MemoryRecord): void {
+function saveMemory(user: UserId, character: string, rec: MemoryRecord): void {
   try {
-    localStorage.setItem(key(character), JSON.stringify(rec))
+    localStorage.setItem(key(user, character), JSON.stringify(rec))
   } catch {
     // Speichern optional (Privatmodus) — dann eben ohne Langzeit-Gedächtnis
   }
 }
 
 /** Profil für den Chat-Request (undefined, solange noch keins existiert). */
-export function getProfile(character: string): string | undefined {
-  const p = loadMemory(character).profile.trim()
+export function getProfile(user: UserId, character: string): string | undefined {
+  const p = loadMemory(user, character).profile.trim()
   return p || undefined
 }
 
-/** Gibt es überhaupt ein gespeichertes Gedächtnis für diesen Charakter? */
-export function hasMemory(character: string): boolean {
-  const rec = loadMemory(character)
+/** Gibt es überhaupt ein gespeichertes Gedächtnis für diese:n Lernende:n + Charakter? */
+export function hasMemory(user: UserId, character: string): boolean {
+  const rec = loadMemory(user, character)
   return rec.profile.trim().length > 0 || rec.pending.length > 0
 }
 
 /** Gedächtnis komplett löschen (Nutzer-Aktion, z. B. Neustart des Lernstands). */
-export function clearMemory(character: string): void {
+export function clearMemory(user: UserId, character: string): void {
   try {
-    localStorage.removeItem(key(character))
+    localStorage.removeItem(key(user, character))
   } catch {
     // egal
   }
@@ -88,12 +90,12 @@ let inflight = false
  * Haiku-Fortschreibung an (fire-and-forget — Fehler sind egal, der nächste
  * Trigger versucht es erneut; der Puffer überlebt App-Neustarts).
  */
-export function noteExchange(character: string, userText: string, assistantText: string): void {
-  const rec = loadMemory(character)
+export function noteExchange(user: UserId, character: string, userText: string, assistantText: string): void {
+  const rec = loadMemory(user, character)
   if (userText.trim()) rec.pending.push({ role: 'user', content: userText.slice(0, MSG_CHARS) })
   if (assistantText.trim()) rec.pending.push({ role: 'assistant', content: assistantText.slice(0, MSG_CHARS) })
   rec.pending = rec.pending.slice(-TRANSCRIPT_WINDOW)
-  saveMemory(character, rec)
+  saveMemory(user, character, rec)
   if (rec.pending.length < UPDATE_AT_MESSAGES || inflight) return
 
   const messages = rec.pending
@@ -101,7 +103,7 @@ export function noteExchange(character: string, userText: string, assistantText:
   fetch(apiUrl('/api/memory'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...accessHeaders() },
-    body: JSON.stringify({ character, profile: rec.profile || undefined, messages }),
+    body: JSON.stringify({ character, learner: user, profile: rec.profile || undefined, messages }),
     // Render-Kaltstart kann ~1 min dauern — danach aufgeben statt ewig blockieren
     signal: AbortSignal.timeout(90_000),
   })
@@ -110,8 +112,8 @@ export function noteExchange(character: string, userText: string, assistantText:
       if (typeof j.profile === 'string' && j.profile.trim()) {
         // Nur die jetzt zusammengefassten Nachrichten aus dem Puffer nehmen —
         // was währenddessen dazukam, bleibt für die nächste Runde liegen.
-        const fresh = loadMemory(character)
-        saveMemory(character, {
+        const fresh = loadMemory(user, character)
+        saveMemory(user, character, {
           profile: j.profile.trim(),
           pending: fresh.pending.slice(messages.length),
           updatedAt: new Date().toISOString(),

@@ -1,5 +1,6 @@
 import Bilingual from './Bilingual'
 import AvatarStage from './AvatarStage'
+import { USERS, type UserId } from '../lib/users'
 import type { Lang } from '../lib/i18n'
 import type { MouthShape } from '../lib/speech'
 
@@ -15,6 +16,8 @@ export const CHARACTERS: readonly Character[] = [
 type Props = {
   character: Character
   onSelect: (c: Character) => void
+  userId: UserId
+  onSelectUser: (u: UserId) => void
   voiceState: 'teacher' | 'user' | 'idle'
   mouth: MouthShape
   lang: Lang
@@ -27,9 +30,29 @@ type Props = {
  * Fotos werden bewusst nicht mehr verwendet; in Phase 3 wird die Bühne durch
  * den Simli-Live-Video-Avatar ersetzt (<video> an gleicher Stelle).
  */
-export default function Sidebar({ character, onSelect, voiceState, mouth, lang, stats }: Props) {
+export default function Sidebar({ character, onSelect, userId, onSelectUser, voiceState, mouth, lang, stats }: Props) {
+  const ui = lang === 'en' ? 'en' : 'de'
   return (
     <aside>
+      {/* Lernprofil: Vuk (Englisch) / Andrijana (Deutsch) — getrenntes Gedächtnis */}
+      <div className="userpick">
+        <div className="userpick-lbl">{ui === 'en' ? 'Who is learning?' : 'Wer lernt?'}</div>
+        <div className="userpick-row">
+          {USERS.map((u) => (
+            <button
+              key={u.id}
+              type="button"
+              className={u.id === userId ? 'userbtn active' : 'userbtn'}
+              onClick={() => onSelectUser(u.id)}
+              title={u.focus[ui]}
+            >
+              <span className="ub-name">{u.name}</span>
+              <span className="ub-focus">{u.focus[ui]}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="hero">
         <AvatarStage characterId={character.id} mouth={mouth} voiceState={voiceState} />
         <div className="hero-info">
