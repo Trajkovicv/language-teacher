@@ -179,7 +179,7 @@ export default function LoginScreen({ status, lang, onLogin }: Props) {
                 boxSizing: 'border-box',
               }}
             />
-            {!isRegistered && (
+            {!isRegistered && status.registerCodeRequired && (
               <div style={{ marginTop: 12 }}>
                 <label style={{ fontSize: 12.5, color: 'var(--ink-soft)', fontWeight: 700 }}>{t.setup}</label>
                 <input

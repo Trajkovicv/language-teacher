@@ -396,12 +396,13 @@ app.post('/api/memory', apiLimiter, requireAccessCode, requireDailyBudget, jsonS
 // Welche Profile haben schon einen Passcode? Der Login-Screen zeigt danach
 // „Passcode setzen" (neu) vs. „Passcode eingeben" (vorhanden).
 app.get('/api/account/status', requireAccessCode, async (_req, res) => {
+  const registerCodeRequired = Boolean(REGISTER_CODE);
   if (!dbEnabled()) {
-    res.json({ enabled: false, registered: [] });
+    res.json({ enabled: false, registered: [], registerCodeRequired });
     return;
   }
   try {
-    res.json({ enabled: true, registered: await registeredLearners() });
+    res.json({ enabled: true, registered: await registeredLearners(), registerCodeRequired });
   } catch (err) {
     console.error('[account] status:', err instanceof Error ? err.message : err);
     res.status(502).json({ error: 'Konten gerade nicht erreichbar.' });

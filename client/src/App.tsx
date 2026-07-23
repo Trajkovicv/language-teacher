@@ -150,7 +150,7 @@ export default function App() {
         if (r === 'unauthorized') {
           // Token abgelaufen/ungültig → sauber abmelden und Login zeigen
           clearSession()
-          const st = await fetchStatus().catch(() => ({ enabled: true, registered: [] as UserId[] }))
+          const st = await fetchStatus().catch(() => ({ enabled: true, registered: [] as UserId[], registerCodeRequired: false }))
           setAccountStatus(st)
           setPhase('login')
         } else {
@@ -158,7 +158,7 @@ export default function App() {
         }
         return
       }
-      const st = await fetchStatus().catch(() => ({ enabled: true, registered: [] as UserId[] }))
+      const st = await fetchStatus().catch(() => ({ enabled: true, registered: [] as UserId[], registerCodeRequired: false }))
       setAccountStatus(st)
       setPhase('login')
     })()
@@ -184,7 +184,7 @@ export default function App() {
         setPhase('login')
       })
       .catch(() => {
-        setAccountStatus({ enabled: true, registered: [] })
+        setAccountStatus({ enabled: true, registered: [], registerCodeRequired: false })
         setPhase('login')
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps

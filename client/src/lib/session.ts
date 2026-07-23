@@ -8,7 +8,7 @@ import type { UserId } from './users'
 // deuten) — ein 401 hier heißt „Passcode falsch".
 
 export type Session = { learner: UserId; token: string }
-export type AccountStatus = { enabled: boolean; registered: UserId[] }
+export type AccountStatus = { enabled: boolean; registered: UserId[]; registerCodeRequired: boolean }
 
 const KEY = 'lt-session'
 
@@ -59,9 +59,9 @@ export async function fetchStatus(retried = false): Promise<AccountStatus> {
     }
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const j = (await res.json()) as { enabled?: boolean; registered?: unknown }
+  const j = (await res.json()) as { enabled?: boolean; registered?: unknown; registerCodeRequired?: boolean }
   const registered = Array.isArray(j.registered) ? j.registered.filter(isUserId) : []
-  return { enabled: Boolean(j.enabled), registered }
+  return { enabled: Boolean(j.enabled), registered, registerCodeRequired: Boolean(j.registerCodeRequired) }
 }
 
 async function authPost(path: string, learner: UserId, passcode: string, registerCode?: string): Promise<Session> {
