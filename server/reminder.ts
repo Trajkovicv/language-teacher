@@ -1,41 +1,107 @@
 import { getAllState } from './db.js';
 import { isLearnerId, type LearnerId } from './prompts.js';
 
-// Baut die tägliche Lern-Erinnerung aus dem Konto-Stand (Nutzung + Lern-
-// Gedächtnis liegen in Turso) plus einem festen Wochen-Themenplan. Kein
-// KI-Aufruf → keine API-Kosten. Sprache: Deutsch für Deutsch-Lernende,
-// Englisch für Vuk (Englisch verfeinern).
+// Baut die tägliche Lern-Erinnerung als E-Mail-festen (tabellenbasierten) Report
+// aus dem Konto-Stand (Nutzung + Lern-Gedächtnis aus Turso) plus einem festen
+// Wochen-Themenplan mit eigenen Briefings/Tipps. Kein KI-Aufruf → keine Kosten.
+// Alle Zahlen sind echt; Felder, die noch Tracking bräuchten, sind bewusst weg.
 
 const APP_URL = process.env.APP_URL ?? 'https://trajkovicv.github.io/language-teacher/';
+// Wöchentliches Ziel (aktive Lerntage pro Woche) für den Plan-Status.
+const WEEKLY_GOAL = 5;
 
 type LearnerInfo = { name: string; target: 'de' | 'en'; level: string };
 const LEARNERS: Record<LearnerId, LearnerInfo> = {
-  andrijana: { name: 'Andrijana', target: 'de', level: 'B1/B2' },
-  vuk: { name: 'Vuk', target: 'en', level: 'B2/C1' },
+  andrijana: { name: 'Andrijana', target: 'de', level: 'B2' },
+  vuk: { name: 'Vuk', target: 'en', level: 'C1' },
 };
 
-// Wochen-Themenplan (0 = Sonntag … 6 = Samstag).
-const PLAN_DE: string[] = [
+// Wochen-Themenplan (Index 0 = Sonntag … 6 = Samstag).
+const PLAN_DE = [
   'Wiederholung & leichte Aufgaben',
-  'Konnektoren & Nebensätze (weil, obwohl, damit …)',
+  'Konnektoren & Nebensätze (weil, obwohl, damit)',
   'Verben & Zeiten (Perfekt, Präteritum, Passiv)',
-  'Fälle & Präpositionen (Dativ/Genitiv, Wechselpräpositionen)',
-  'Wortschatz Alltag & Beruf (auch Pflege)',
+  'Fälle & Präpositionen (Dativ, Genitiv, Wechselpräpositionen)',
+  'Wortschatz Alltag & Beruf (Pflege)',
   'Konjunktiv II & höfliche Redemittel',
   'Freie Wiederholung – Lieblingsthemen',
 ];
-const PLAN_EN: string[] = [
+const PLAN_EN = [
   'Review & light practice',
   'Phrasal verbs & dependent prepositions',
   'Tenses & conditionals (mixed, inversion)',
-  'Collocations & word choice (affect/effect …)',
+  'Collocations & word choice',
   'Advanced structures (cleft, subjunctive)',
   'Idioms & register',
   'Free review – your choice',
 ];
 
+// Kurz-Briefing „Warum das heute wichtig ist" (Alltag & Pflege-Bezug) + Tipp.
+// Für Deutsch je Wochentag mit serbischer Übersetzung.
+type Bi = { de: string; sr: string };
+const BRIEF_DE: Bi[] = [
+  {
+    de: 'Wiederholen festigt, was du schon kannst — kurz und locker. Im Alltag hilft es, sichere Sätze parat zu haben, ohne nachzudenken.',
+    sr: 'Ponavljanje učvršćuje ono što već znaš — kratko i opušteno. U svakodnevici pomaže da sigurne rečenice imaš spremne, bez razmišljanja.',
+  },
+  {
+    de: 'Mit »weil« und »obwohl« erklärst du Gründe und Einwände — im Pflegealltag ständig gebraucht: „Ich messe jetzt Ihren Blutdruck, weil …". So wirst du sofort verstanden und wirkst professionell.',
+    sr: 'Pomoću »weil« (jer) i »obwohl« (iako) objašnjavaš razloge i prigovore — u nezi to stalno treba: „Sada Vam merim krvni pritisak, jer …". Tako te odmah razumeju i deluješ profesionalno.',
+  },
+  {
+    de: 'Perfekt und Präteritum brauchst du, um zu berichten, was war — bei der Übergabe oder in der Doku: „Der Patient hat gut geschlafen." Passiv zeigt Abläufe: „Die Wunde wurde versorgt."',
+    sr: 'Perfekt i preterit trebaš da ispričaš šta je bilo — na primopredaji ili u dokumentaciji: „Der Patient hat gut geschlafen." Pasiv pokazuje radnje: „Die Wunde wurde versorgt."',
+  },
+  {
+    de: 'Die richtige Präposition + Fall machen Ort und Richtung klar: „im Zimmer" (wo?) vs. „ins Zimmer" (wohin?). Im Job wichtig, damit keine Missverständnisse entstehen.',
+    sr: 'Prava prepozicija + padež jasno pokazuju mesto i pravac: „im Zimmer" (gde?) naspram „ins Zimmer" (kuda?). Na poslu je važno da ne dođe do nesporazuma.',
+  },
+  {
+    de: 'Fachwörter wie „verabreichen", „die Übergabe" oder „die Schweigepflicht" brauchst du täglich im Job. Wer die richtigen Wörter kennt, arbeitet sicherer und schneller im Team.',
+    sr: 'Stručne reči kao „verabreichen" (dati lek), „die Übergabe" (primopredaja) ili „die Schweigepflicht" (obaveza ćutanja) trebaš svakodnevno na poslu. Ko zna prave reči, radi sigurnije i brže u timu.',
+  },
+  {
+    de: 'Mit „Könnten Sie …?" oder „Ich würde …" klingst du höflich und respektvoll — wichtig mit Patient:innen, Angehörigen und Vorgesetzten: „Könnten Sie bitte kurz warten?"',
+    sr: 'Sa „Könnten Sie …?" ili „Ich würde …" zvučiš ljubazno i s poštovanjem — važno sa pacijentima, rodbinom i nadređenima: „Könnten Sie bitte kurz warten?"',
+  },
+  {
+    de: 'Heute übst du, was dir Spaß macht oder wo du dich unsicher fühlst. Selbst gewählt bleibt besser hängen — such dir ein Thema aus der Woche aus.',
+    sr: 'Danas vežbaš ono što ti prija ili gde se osećaš nesigurno. Ono što sam biraš, bolje se pamti — izaberi temu iz ove nedelje.',
+  },
+];
+const TIP_DE: Bi[] = [
+  { de: 'Wiederhole laut — Sprechen speichert besser als nur Lesen.', sr: 'Ponavljaj naglas — govor pamtiš bolje nego samo čitanje.' },
+  { de: 'Im Nebensatz mit »weil« steht das Verb am Ende: „…, weil ich müde bin."', sr: 'U zavisnoj rečenici sa »weil« glagol ide na kraj: „…, weil ich müde bin."' },
+  { de: 'Perfekt mit haben oder sein: Bewegung → sein („ist gefahren"), sonst haben.', sr: 'Perfekt sa haben ili sein: kretanje → sein („ist gefahren"), inače haben.' },
+  { de: 'Wechselpräposition: wo? → Dativ (dem/der), wohin? → Akkusativ (den/die).', sr: 'Promenljiva prepozicija: gde? → dativ (dem/der), kuda? → akuzativ (den/die).' },
+  { de: 'Neue Wörter immer mit Artikel lernen: nicht „Übergabe", sondern „die Übergabe".', sr: 'Nove reči uči uvek sa članom: ne „Übergabe", nego „die Übergabe".' },
+  { de: 'Höfliche Bitte: „Könnten Sie …?" statt „Können Sie …?" — Konjunktiv II wirkt freundlicher.', sr: 'Ljubazna molba: „Könnten Sie …?" umesto „Können Sie …?" — konjunktiv II deluje ljubaznije.' },
+  { de: 'Kurz und regelmäßig schlägt lang und selten — schon 10 Minuten zählen.', sr: 'Kratko i redovno je bolje od dugo i retko — i 10 minuta se računa.' },
+];
+const BRIEF_EN: string[] = [
+  'Review locks in what you know. Fluent, automatic phrases matter most in real conversations and meetings.',
+  'Phrasal verbs and the right prepositions make you sound natural, not textbook: “deal with”, “follow up on”, “account for”.',
+  'Mixed conditionals and inversion add precision and polish — useful in writing and formal speech: “Had I known, I would have …”.',
+  'Strong collocations set advanced speakers apart: “make a decision”, “heavily reliant”, “raise concerns”. Word choice (affect/effect) signals care.',
+  'Cleft sentences and the subjunctive give you nuance and formality: “What matters is …”, “I suggest that he be …”.',
+  'Idioms and the right register make you sound native — and knowing when NOT to use them matters at work.',
+  'Pick what you enjoy or where you feel unsure. Self-chosen practice sticks best.',
+];
+const TIP_EN: string[] = [
+  'Review out loud — speaking fixes phrases better than reading.',
+  'Learn verb + preposition together: “depend ON”, “result IN”, “focus ON”.',
+  'Inversion for emphasis: “Not only did we finish, but we also …”.',
+  'Say “do research” and “make a decision” — collocations, not word-by-word.',
+  'Cleft for focus: “It was the deadline that caused the stress.”',
+  'Match register to context: idioms for casual, plain English for formal.',
+  'Short and regular beats long and rare — even 10 minutes counts.',
+];
+
 const WEEKDAY_DE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 const WEEKDAY_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const SHORT_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+const SHORT_EN = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const MONTH_DE = ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.'];
 
 type Usage = {
   minutes?: number;
@@ -60,7 +126,6 @@ function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Aufeinanderfolgende aktive Tage bis heute. */
 function streakOf(days: string[]): number {
   const set = new Set(days);
   let streak = 0;
@@ -72,89 +137,15 @@ function streakOf(days: string[]): number {
   return streak;
 }
 
-export type ReminderMail = { subject: string; text: string; html: string };
-
-/**
- * Erinnerung für ein Konto bauen. Liest Nutzung + Gedächtnis aus der DB.
- * `now` steuert den Wochentag (Standard: aktuelles Datum).
- */
-export async function buildReminder(learner: LearnerId, now: Date = new Date()): Promise<ReminderMail> {
-  const info = LEARNERS[learner];
-  const de = info.target === 'de';
-  const dow = now.getDay();
-  const topic = (de ? PLAN_DE : PLAN_EN)[dow];
-  const weekday = (de ? WEEKDAY_DE : WEEKDAY_EN)[dow];
-
-  const state = await getAllState(learner).catch(() => ({}) as Record<string, string>);
-  const usage = parseUsage(state['usage']);
-  const minutes = Math.max(0, Math.round(usage.minutes ?? 0));
-  const sessions = usage.sessions ?? 0;
-  const streak = streakOf(Array.isArray(usage.days) ? usage.days : []);
-  const activeDays = Array.isArray(usage.days) ? usage.days.length : 0;
-
-  // Kurzer Lernstand aus dem Gedächtnis-Profil (erster Satz, gekürzt).
-  const profile = (state[`memory:mila`] || state[`memory:ana`] || state[`memory:luka`] || '').trim();
-  let focusLine = '';
-  try {
-    const p = JSON.parse(profile) as { profile?: string };
-    const txt = typeof p?.profile === 'string' ? p.profile : profile;
-    if (txt) focusLine = txt.replace(/\s+/g, ' ').slice(0, 180);
-  } catch {
-    if (profile) focusLine = profile.replace(/\s+/g, ' ').slice(0, 180);
+function activeThisWeek(days: string[], now: Date): number {
+  const set = new Set(days);
+  let n = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    if (set.has(isoDay(d))) n++;
   }
-
-  if (de) {
-    const subject = `Deine Deutsch-Session heute: ${topic}`;
-    const lines = [
-      `Hallo ${info.name}!`,
-      ``,
-      `Heute ist ${weekday}. Dein Fokus für die heutige Session (ca. 10–15 Minuten):`,
-      `👉 ${topic}`,
-      ``,
-      `So machst du deine Session:`,
-      `1) App öffnen: ${APP_URL}`,
-      `2) Als „${info.name}" anmelden → Tab „Übungen"`,
-      `3) Unten in der Übungsbibliothek Niveau ${info.level} wählen und ca. 10 Aufgaben zum heutigen Thema machen`,
-      ``,
-      `Dein Stand bisher: ~${minutes} Minuten geübt · ${sessions} Sitzung${sessions === 1 ? '' : 'en'} · an ${activeDays} Tag${activeDays === 1 ? '' : 'en'} aktiv${streak >= 2 ? ` · Serie: ${streak} Tage in Folge 🔥` : ''}.`,
-      focusLine ? `\nWoran wir arbeiten: ${focusLine}` : '',
-      ``,
-      `Vorbereitung: Nimm dir einen ruhigen Moment, Kopfhörer bereit (Mila liest vor). Sprich die Beispielsätze einmal laut mit – das hilft der Aussprache.`,
-      ``,
-      `Du schaffst das! Kleine Schritte jeden Tag bringen dich sicher ans Ziel.`,
-      `Samo napred – malim koracima do cilja! 💪`,
-      ``,
-      `— Mila, deine Sprachlehrerin`,
-    ];
-    const text = lines.filter((l) => l !== undefined).join('\n');
-    const html = mailHtml(info.name, weekday, topic, info.level, minutes, sessions, activeDays, streak, focusLine, true);
-    return { subject, text, html };
-  }
-
-  const subject = `Your English session today: ${topic}`;
-  const lines = [
-    `Hi ${info.name}!`,
-    ``,
-    `Today is ${weekday}. Your focus for today’s session (about 10–15 minutes):`,
-    `👉 ${topic}`,
-    ``,
-    `How to do your session:`,
-    `1) Open the app: ${APP_URL}`,
-    `2) Sign in as “${info.name}” → “Übungen” (Exercises) tab`,
-    `3) In the library, switch to EN, pick level ${info.level}, and do ~10 exercises on today’s topic`,
-    ``,
-    `Your progress so far: ~${minutes} minutes practised · ${sessions} session${sessions === 1 ? '' : 's'} · active on ${activeDays} day${activeDays === 1 ? '' : 's'}${streak >= 2 ? ` · streak: ${streak} days 🔥` : ''}.`,
-    focusLine ? `\nWhat we’re working on: ${focusLine}` : '',
-    ``,
-    `Prep: find a quiet moment, headphones ready. Read the example sentences out loud once — great for fluency.`,
-    ``,
-    `Keep it up — small daily steps make the difference!`,
-    ``,
-    `— Mila, your language teacher`,
-  ];
-  const text = lines.filter((l) => l !== undefined).join('\n');
-  const html = mailHtml(info.name, weekday, topic, info.level, minutes, sessions, activeDays, streak, focusLine, false);
-  return { subject, text, html };
+  return n;
 }
 
 /** Kurzer Lernstand aus dem Gedächtnis-Profil (erster Teil, gekürzt). */
@@ -170,21 +161,291 @@ function focusOf(state: Record<string, string>): string {
   }
 }
 
-/** Anzahl aktiver Tage innerhalb der letzten 7 Kalendertage. */
-function activeThisWeek(days: string[], now: Date): number {
-  const recent = new Set<string>();
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - i);
-    recent.add(isoDay(d));
-  }
-  return days.filter((d) => recent.has(d)).length;
+function fmtDuration(min: number, de: boolean): string {
+  const m = Math.max(0, Math.round(min));
+  const std = de ? 'Std' : 'h';
+  const mn = de ? 'Min' : 'min';
+  if (m < 60) return `${m} ${mn}`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h} ${std} ${String(r).padStart(2, '0')} ${mn}` : `${h} ${std}`;
 }
 
-/**
- * Wochen-Überblick für die Eltern/Admin (alle Profile) — auf Deutsch.
- * Geht an REMINDER_ADMIN_EMAIL, damit du den Stand bekommst, ohne online zu sein.
- */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ===== E-Mail-feste Bausteine (tabellenbasiert, Inline-Styles, kein SVG/Flex) =====
+
+function progressBar(pct: number, color: string): string {
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  const left =
+    p > 0
+      ? `<td bgcolor="${color}" width="${p}%" style="height:9px;line-height:9px;font-size:0;">&nbsp;</td>`
+      : '';
+  const right = p < 100 ? `<td bgcolor="#EDE7EC" style="height:9px;line-height:9px;font-size:0;">&nbsp;</td>` : '';
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border-radius:99px;overflow:hidden;"><tr>${left}${right}</tr></table>`;
+}
+
+function kpiCell(value: string, label: string): string {
+  return `<td width="25%" valign="top" style="padding:0 4px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ECE7ED;border-radius:11px;"><tr><td align="center" style="padding:12px 4px;">
+      <div style="font-size:21px;font-weight:800;color:#201C28;">${value}</div>
+      <div style="font-size:9.5px;font-weight:800;color:#8A8398;letter-spacing:.4px;padding-top:2px;">${label}</div>
+    </td></tr></table>
+  </td>`;
+}
+
+function activityStrip(days: string[], now: Date, short: string[], todayLabel: string): string {
+  const set = new Set(days);
+  const cells: string[] = [];
+  const labels: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    const active = set.has(isoDay(d));
+    const isToday = i === 0;
+    const barColor = active ? (isToday ? '#E8477A' : '#F1B9CD') : '#EDE7EC';
+    const h = active ? 34 : 5;
+    cells.push(
+      `<td valign="bottom" align="center" height="40" style="padding:0 3px;"><div style="height:${h}px;background:${barColor};border-radius:4px 4px 0 0;font-size:0;line-height:0;">&nbsp;</div></td>`,
+    );
+    labels.push(
+      `<td align="center" style="font-size:9.5px;padding-top:5px;color:${isToday ? '#E8477A' : '#8A8398'};font-weight:${isToday ? 800 : 400};">${isToday ? todayLabel : short[d.getDay()]}</td>`,
+    );
+  }
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${cells.join('')}</tr><tr>${labels.join('')}</tr></table>`;
+}
+
+export type ReminderMail = { subject: string; text: string; html: string };
+
+/** Tägliche Report-Mail für ein Konto. `now` steuert Wochentag/Thema. */
+export async function buildReminder(learner: LearnerId, now: Date = new Date()): Promise<ReminderMail> {
+  const info = LEARNERS[learner];
+  const de = info.target === 'de';
+  const dow = now.getDay();
+  const topic = (de ? PLAN_DE : PLAN_EN)[dow];
+  const weekday = (de ? WEEKDAY_DE : WEEKDAY_EN)[dow];
+  const dateStr = de
+    ? `${weekday}, ${now.getDate()}. ${MONTH_DE[now.getMonth()]} ${now.getFullYear()}`
+    : `${weekday}, ${now.getDate()} ${MONTH_DE[now.getMonth()].replace('.', '')}`;
+
+  const state = await getAllState(learner).catch(() => ({}) as Record<string, string>);
+  const usage = parseUsage(state['usage']);
+  const totalMin = Math.max(0, Math.round(usage.minutes ?? 0));
+  const sessions = usage.sessions ?? 0;
+  const messages = usage.messages ?? 0;
+  const days = Array.isArray(usage.days) ? usage.days : [];
+  const activeDays = days.length;
+  const streak = streakOf(days);
+  const week = activeThisWeek(days, now);
+  const goalPct = Math.min(100, (week / WEEKLY_GOAL) * 100);
+  // Plan-Status: Soll-Tempo bis heute (Mo=1 … So=7)
+  const elapsed = dow === 0 ? 7 : dow;
+  const expected = Math.round((elapsed * WEEKLY_GOAL) / 7);
+  const onTrack = week >= expected;
+  const brief = de ? BRIEF_DE[dow] : { de: BRIEF_EN[dow], sr: '' };
+  const tip = de ? TIP_DE[dow] : { de: TIP_EN[dow], sr: '' };
+  const focus = focusOf(state);
+
+  const L = de
+    ? {
+        greet: `Guten Morgen, ${info.name}.`,
+        sub: `${week} ${week === 1 ? 'Tag' : 'Tage'} aktiv diese Woche · Serie ${streak}`,
+        subSr: `${week} ${week === 1 ? 'dan' : 'dana'} aktivno ove nedelje · niz ${streak}`,
+        total: 'INSGESAMT GEÜBT',
+        goal: 'WOCHENZIEL',
+        status: onTrack ? '● Auf Kurs' : '● Etwas im Rückstand',
+        kpi: ['SITZUNGEN', 'AKTIVE TAGE', 'SERIE', 'NACHRICHTEN'],
+        activity: 'AKTIVITÄT · LETZTE 7 TAGE',
+        today: 'Heute',
+        next: '▶ HEUTE DRAN',
+        nextMeta: `Niveau ${info.level} · ca. 10 Aufgaben · ~12 Min`,
+        why: '🧭 WARUM DAS HEUTE WICHTIG IST',
+        tipL: '💡 TIPP DES TAGES',
+        focusL: 'WORAN WIR GERADE ARBEITEN',
+        cta: 'Session starten →',
+        motiv: 'Kleine Schritte jeden Tag bringen dich sicher ans Ziel.',
+        motivSr: 'Malim koracima do cilja — na super si putu!',
+        sign: '— Mila, deine Sprachlehrerin',
+        sessH: 'So läuft deine Session',
+      }
+    : {
+        greet: `Good morning, ${info.name}.`,
+        sub: `${week} ${week === 1 ? 'day' : 'days'} active this week · streak ${streak}`,
+        subSr: '',
+        total: 'TOTAL PRACTISED',
+        goal: 'WEEKLY GOAL',
+        status: onTrack ? '● On track' : '● Slightly behind',
+        kpi: ['SESSIONS', 'ACTIVE DAYS', 'STREAK', 'MESSAGES'],
+        activity: 'ACTIVITY · LAST 7 DAYS',
+        today: 'Today',
+        next: '▶ TODAY',
+        nextMeta: `Level ${info.level} · ~10 exercises · ~12 min`,
+        why: '🧭 WHY THIS MATTERS TODAY',
+        tipL: '💡 TIP OF THE DAY',
+        focusL: 'WHAT WE ARE WORKING ON',
+        cta: 'Start session →',
+        motiv: 'Small steps every day get you there.',
+        motivSr: '',
+        sign: '— Mila, your language teacher',
+        sessH: 'Your session',
+      };
+
+  const subject = de ? `Dein Lern-Report: ${topic}` : `Your learning report: ${topic}`;
+
+  // ---- Plain-Text-Fallback ----
+  const text = [
+    L.greet,
+    L.sub,
+    '',
+    `${de ? 'INSGESAMT GEÜBT' : 'TOTAL'}: ${fmtDuration(totalMin, de)} (${sessions} ${de ? 'Sitzungen' : 'sessions'})`,
+    `${de ? 'WOCHENZIEL' : 'WEEKLY GOAL'}: ${week}/${WEEKLY_GOAL} — ${L.status.replace('● ', '')}`,
+    '',
+    `${L.next}: ${topic}`,
+    `${L.nextMeta}`,
+    '',
+    `${de ? 'WARUM WICHTIG' : 'WHY IT MATTERS'}: ${brief.de}`,
+    brief.sr ? `(SR) ${brief.sr}` : '',
+    '',
+    `${de ? 'TIPP' : 'TIP'}: ${tip.de}`,
+    tip.sr ? `(SR) ${tip.sr}` : '',
+    focus ? `\n${de ? 'LERNSTAND' : 'FOCUS'}: ${focus}` : '',
+    '',
+    `${de ? 'Zur App' : 'Open the app'}: ${APP_URL}`,
+    L.sign,
+  ]
+    .filter((l) => l !== '')
+    .join('\n');
+
+  // ---- HTML (E-Mail-fest) ----
+  const briefSr = brief.sr
+    ? `<div style="font-size:12px;color:#8A7FA0;line-height:1.5;font-style:italic;border-top:1px solid #EADFF0;padding-top:9px;margin-top:9px;">${esc(brief.sr)}</div>`
+    : '';
+  const tipSr = tip.sr
+    ? `<div style="font-size:12px;color:#9A8A6A;line-height:1.45;font-style:italic;border-top:1px solid #F1E4CC;padding-top:7px;margin-top:7px;">${esc(tip.sr)}</div>`
+    : '';
+  const subSr = L.subSr
+    ? `<div style="font-size:12px;color:#8E82A0;font-style:italic;padding-top:2px;">${esc(L.subSr)}</div>`
+    : '';
+  const focusBlock = focus
+    ? `<tr><td style="padding:12px 26px 4px;">
+        <div style="font-size:10.5px;font-weight:800;letter-spacing:1px;color:#8A8398;padding-bottom:6px;">${L.focusL}</div>
+        <div style="font-size:13px;color:#3C3646;line-height:1.55;">${esc(focus)}</div>
+      </td></tr>`
+    : '';
+  const statusColor = onTrack ? '#0E8A5C' : '#C9821A';
+  const statusBg = onTrack ? '#E1F5EC' : '#FBEFD9';
+  const barColor = onTrack ? '#12A06B' : '#E8871E';
+
+  const html = `<div style="background:#E7E3E9;padding:20px 0;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" align="center" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #E3DEE6;border-radius:16px;overflow:hidden;">
+    <tr><td bgcolor="#E8477A" style="height:4px;line-height:4px;font-size:0;">&nbsp;</td></tr>
+
+    <!-- Header -->
+    <tr><td bgcolor="#211C29" style="padding:22px 26px;color:#ffffff;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td style="font-size:12px;font-weight:800;letter-spacing:1.4px;color:#F4C6D5;">MILA · LERN-REPORT</td>
+        <td align="right" style="font-size:11.5px;color:#9C90A8;">${esc(dateStr)}</td>
+      </tr></table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;"><tr>
+        <td valign="middle">
+          <div style="font-size:21px;font-weight:800;color:#ffffff;">${esc(L.greet)}</div>
+          <div style="font-size:12.5px;color:#AA9EB6;padding-top:3px;">${esc(L.sub)}</div>
+          ${subSr}
+        </td>
+        <td align="right" valign="middle" width="90">
+          <span style="background:#332A3B;border:1px solid #45394F;border-radius:99px;padding:6px 12px;font-size:12px;font-weight:800;color:#FFB784;white-space:nowrap;">🔥 ${streak}</span>
+        </td>
+      </tr></table>
+    </td></tr>
+
+    <!-- Hero: Gesamtzeit + Wochenziel -->
+    <tr><td style="padding:20px 26px 6px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td valign="top">
+          <div style="font-size:10.5px;font-weight:800;letter-spacing:1px;color:#8A8398;">${L.total}</div>
+          <div style="font-size:32px;font-weight:800;color:#201C28;letter-spacing:-.5px;padding-top:5px;">${fmtDuration(totalMin, de)}</div>
+          <div style="font-size:12px;color:#8A8398;padding-top:4px;">${sessions} ${de ? 'Sitzungen' : 'sessions'} · ${activeDays} ${de ? 'aktive Tage' : 'active days'}</div>
+        </td>
+        <td valign="top" width="190" style="padding-left:14px;">
+          <div style="border:1px solid #ECE7ED;border-radius:12px;padding:12px 13px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td style="font-size:10.5px;font-weight:800;letter-spacing:.5px;color:#8A8398;">${L.goal}</td>
+              <td align="right" style="font-size:13px;font-weight:800;color:#201C28;">${week}/${WEEKLY_GOAL}</td>
+            </tr></table>
+            <div style="padding:8px 0 6px;">${progressBar(goalPct, barColor)}</div>
+            <div style="text-align:center;"><span style="background:${statusBg};color:${statusColor};font-size:11px;font-weight:800;padding:4px 10px;border-radius:99px;">${L.status}</span></div>
+          </div>
+        </td>
+      </tr></table>
+    </td></tr>
+
+    <!-- KPI -->
+    <tr><td style="padding:14px 22px 4px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        ${kpiCell(String(sessions), L.kpi[0])}
+        ${kpiCell(String(activeDays), L.kpi[1])}
+        ${kpiCell(String(streak), L.kpi[2])}
+        ${kpiCell(String(messages), L.kpi[3])}
+      </tr></table>
+    </td></tr>
+
+    <!-- Aktivität -->
+    <tr><td style="padding:14px 26px 4px;">
+      <div style="font-size:10.5px;font-weight:800;letter-spacing:1px;color:#8A8398;padding-bottom:9px;">${L.activity}</div>
+      ${activityStrip(days, now, de ? SHORT_DE : SHORT_EN, L.today)}
+    </td></tr>
+
+    <!-- Heute dran -->
+    <tr><td style="padding:14px 26px 4px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #EEE9EF;border-radius:13px;overflow:hidden;">
+        <tr><td bgcolor="#201C28" style="padding:9px 16px;font-size:10.5px;font-weight:800;letter-spacing:1.2px;color:#FFB784;">${L.next}</td></tr>
+        <tr><td style="padding:14px 16px;">
+          <div style="font-size:16px;font-weight:800;color:#201C28;">${esc(topic)}</div>
+          <div style="font-size:12px;color:#6E6579;padding-top:3px;">${esc(L.nextMeta)}</div>
+        </td></tr>
+      </table>
+    </td></tr>
+
+    <!-- Warum wichtig + Serbisch -->
+    <tr><td style="padding:10px 26px 4px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E1D8EC;border-radius:12px;background:#FAF6FC;"><tr><td style="padding:14px 15px;">
+        <div style="font-size:10px;font-weight:800;letter-spacing:.6px;color:#7A5AA6;">${L.why}</div>
+        <div style="font-size:13px;color:#3C3646;line-height:1.55;padding-top:6px;">${esc(brief.de)}</div>
+        ${briefSr}
+      </td></tr></table>
+    </td></tr>
+
+    <!-- Tipp + Serbisch -->
+    <tr><td style="padding:10px 26px 4px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #F5E3C4;border-radius:12px;background:#FFF6E9;"><tr><td style="padding:13px 15px;">
+        <div style="font-size:10px;font-weight:800;letter-spacing:.6px;color:#B9822A;">${L.tipL}</div>
+        <div style="font-size:13px;color:#5A4B2E;line-height:1.5;padding-top:5px;">${esc(tip.de)}</div>
+        ${tipSr}
+      </td></tr></table>
+    </td></tr>
+
+    ${focusBlock}
+
+    <!-- CTA -->
+    <tr><td style="padding:18px 26px 26px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+        <a href="${APP_URL}" style="display:inline-block;background:#E8477A;color:#ffffff;text-decoration:none;font-weight:800;font-size:15px;padding:14px 32px;border-radius:11px;">${esc(L.cta)}</a>
+      </td></tr></table>
+      <div style="text-align:center;font-size:12.5px;color:#8A8398;padding-top:15px;line-height:1.5;">
+        ${esc(L.motiv)}${L.motivSr ? `<br><span style="font-style:italic;">${esc(L.motivSr)}</span>` : ''}<br>
+        <span style="font-weight:800;color:#201C28;">${esc(L.sign)}</span>
+      </div>
+    </td></tr>
+  </table>
+</div>`;
+
+  return { subject, text, html };
+}
+
+// ===== Wochen-Überblick für die Eltern/Admin (an REMINDER_ADMIN_EMAIL) =====
+
 export async function buildAdminSummary(now: Date = new Date()): Promise<ReminderMail> {
   const textBlocks: string[] = [];
   const htmlBlocks: string[] = [];
@@ -211,11 +472,11 @@ export async function buildAdminSummary(now: Date = new Date()): Promise<Reminde
 
     textBlocks.push(`• ${heading}\n  ${line}${hint}${focus ? `\n  Lernstand: ${focus}` : ''}`);
     htmlBlocks.push(
-      `<div style="background:#F7F1F5;border-radius:12px;padding:12px 14px;margin-bottom:10px">
-        <div style="font-weight:800">${esc(heading)}</div>
-        <div style="font-size:14px;margin-top:4px">${esc(line)}</div>
-        ${hint ? `<div style="font-size:14px;color:#E0575F;margin-top:4px">${esc(hint.trim())}</div>` : ''}
-        ${focus ? `<div style="font-size:13px;color:#8A8398;margin-top:6px">Lernstand: ${esc(focus)}</div>` : ''}
+      `<div style="background:#F7F1F5;border-radius:12px;padding:12px 14px;margin-bottom:10px;">
+        <div style="font-weight:800;">${esc(heading)}</div>
+        <div style="font-size:14px;margin-top:4px;">${esc(line)}</div>
+        ${hint ? `<div style="font-size:14px;color:#E0575F;margin-top:4px;">${esc(hint.trim())}</div>` : ''}
+        ${focus ? `<div style="font-size:13px;color:#8A8398;margin-top:6px;">Lernstand: ${esc(focus)}</div>` : ''}
       </div>`,
     );
   }
@@ -231,77 +492,15 @@ export async function buildAdminSummary(now: Date = new Date()): Promise<Reminde
     'Diese Mail kommt automatisch — du musst dafür nicht online sein.',
     '— Language-Teacher-App',
   ].join('\n');
-  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#241F2E">
-    <div style="background:linear-gradient(135deg,#FF6E97,#FFA36B);border-radius:20px 20px 0 0;padding:20px 24px;color:#fff">
-      <div style="font-size:20px;font-weight:800">Wochenüberblick 📊</div>
-      <div style="opacity:.92;margin-top:2px">Lernstand von Andrijana & Vuk</div>
+  const html = `<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#241F2E;">
+    <div style="background:#211C29;border-radius:16px 16px 0 0;padding:20px 24px;color:#fff;">
+      <div style="font-size:20px;font-weight:800;">Wochenüberblick 📊</div>
+      <div style="opacity:.85;margin-top:2px;font-size:13px;">Lernstand von Andrijana & Vuk</div>
     </div>
-    <div style="background:#fff;border:1px solid #eee;border-top:none;border-radius:0 0 20px 20px;padding:20px 24px">
+    <div style="background:#fff;border:1px solid #eee;border-top:none;border-radius:0 0 16px 16px;padding:20px 24px;">
       ${htmlBlocks.join('')}
-      <div style="margin-top:8px;color:#8A8398;font-size:13px">Diese Mail kommt automatisch — du musst dafür nicht online sein.</div>
+      <div style="margin-top:8px;color:#8A8398;font-size:13px;">Diese Mail kommt automatisch — du musst dafür nicht online sein.</div>
     </div>
   </div>`;
   return { subject, text, html };
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function mailHtml(
-  name: string,
-  weekday: string,
-  topic: string,
-  level: string,
-  minutes: number,
-  sessions: number,
-  activeDays: number,
-  streak: number,
-  focusLine: string,
-  de: boolean,
-): string {
-  const t = de
-    ? {
-        intro: `Heute ist ${esc(weekday)}. Dein Fokus für heute (ca. 10–15 Min):`,
-        how: 'So machst du deine Session:',
-        s1: `App öffnen und als „${esc(name)}" anmelden`,
-        s2: 'Tab „Übungen" → Übungsbibliothek',
-        s3: `Niveau ${esc(level)} wählen, ~10 Aufgaben zum Thema`,
-        status: `Dein Stand: ~${minutes} Min · ${sessions} Sitzung${sessions === 1 ? '' : 'en'} · ${activeDays} aktive Tage${streak >= 2 ? ` · Serie ${streak} 🔥` : ''}`,
-        focus: focusLine ? `Woran wir arbeiten: ${esc(focusLine)}` : '',
-        cta: 'Zur App',
-        sign: '— Mila, deine Sprachlehrerin',
-        motiv: 'Kleine Schritte jeden Tag – du schaffst das! 💪',
-      }
-    : {
-        intro: `Today is ${esc(weekday)}. Your focus for today (about 10–15 min):`,
-        how: 'How to do your session:',
-        s1: `Open the app and sign in as “${esc(name)}”`,
-        s2: '“Übungen” (Exercises) tab → library',
-        s3: `Switch to EN, level ${esc(level)}, ~10 exercises on the topic`,
-        status: `Progress: ~${minutes} min · ${sessions} session${sessions === 1 ? '' : 's'} · ${activeDays} active days${streak >= 2 ? ` · streak ${streak} 🔥` : ''}`,
-        focus: focusLine ? `What we’re working on: ${esc(focusLine)}` : '',
-        cta: 'Open the app',
-        sign: '— Mila, your language teacher',
-        motiv: 'Small steps every day — you’ve got this! 💪',
-      };
-  return `<!-- Lern-Erinnerung -->
-<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#241F2E">
-  <div style="background:linear-gradient(135deg,#FF6E97,#FFA36B);border-radius:20px 20px 0 0;padding:22px 24px;color:#fff">
-    <div style="font-size:22px;font-weight:800">Hallo ${esc(name)}! 👋</div>
-    <div style="opacity:.92;margin-top:4px">${esc(t.intro)}</div>
-  </div>
-  <div style="background:#fff;border:1px solid #eee;border-top:none;border-radius:0 0 20px 20px;padding:22px 24px">
-    <div style="font-size:18px;font-weight:800;color:#E8477A;margin-bottom:14px">👉 ${esc(topic)}</div>
-    <div style="font-weight:700;margin-bottom:6px">${esc(t.how)}</div>
-    <ol style="margin:0 0 14px 18px;padding:0;line-height:1.7">
-      <li>${t.s1}</li><li>${t.s2}</li><li>${t.s3}</li>
-    </ol>
-    <div style="background:#F7F1F5;border-radius:12px;padding:12px 14px;font-size:14px">${esc(t.status)}</div>
-    ${t.focus ? `<div style="margin-top:10px;font-size:14px;color:#8A8398">${t.focus}</div>` : ''}
-    <a href="${esc(APP_URL)}" style="display:inline-block;margin-top:18px;background:#E8477A;color:#fff;text-decoration:none;font-weight:700;padding:11px 20px;border-radius:12px">${esc(t.cta)}</a>
-    <div style="margin-top:18px;color:#8A8398;font-size:14px">${esc(t.motiv)}</div>
-    <div style="margin-top:12px;font-weight:700">${esc(t.sign)}</div>
-  </div>
-</div>`;
 }

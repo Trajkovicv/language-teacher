@@ -547,6 +547,28 @@ app.post('/api/reminder/run', reminderLimiter, jsonSmall, async (req, res) => {
     return;
   }
 
+  // Test-Modus: den Tages-Report an eine beliebige Adresse schicken (zum Prüfen,
+  // ohne die echten Empfänger zu benachrichtigen).
+  if (req.body?.mode === 'test') {
+    const to = typeof req.body?.to === 'string' ? req.body.to.trim() : '';
+    const learner = isLearnerId(req.body?.learner) ? (req.body.learner as LearnerId) : 'andrijana';
+    if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+      res.status(400).json({ error: 'Gültige Test-Adresse (to) nötig.' });
+      return;
+    }
+    try {
+      const mail = await buildReminder(learner);
+      await sendMail(to, `[TEST] ${mail.subject}`, mail.text, mail.html);
+      res.json({ ok: true, results: [{ mode: 'test', learner, status: 'gesendet', to }] });
+    } catch (err) {
+      console.error('[reminder] test:', err instanceof Error ? err.message : err);
+      res
+        .status(200)
+        .json({ ok: false, results: [{ mode: 'test', status: 'Fehler', error: err instanceof Error ? err.message : String(err) }] });
+    }
+    return;
+  }
+
   const only = isLearnerId(req.body?.learner) ? [req.body.learner as LearnerId] : (['andrijana', 'vuk'] as LearnerId[]);
   const results: Array<Record<string, string>> = [];
   for (const learner of only) {
