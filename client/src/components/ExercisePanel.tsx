@@ -7,10 +7,24 @@ import { availableLevels, countByLevel, exercisesForLevel, type ExLevel, type Ex
 import type { UserId } from '../lib/users'
 import type { Lang } from '../lib/i18n'
 
-// Zielsprache der Übungsbibliothek je Profil: Andrijana lernt Deutsch, sonst
-// bleibt es die Serbisch-Bibliothek. Fortschritt wird pro Zielsprache getrennt
-// gespeichert (lt-exlib-<target>), damit sich Deutsch/Serbisch nicht vermischen.
-const targetForUser = (user: UserId): ExTarget => (user === 'andrijana' ? 'de' : 'sr')
+// Verfügbare Zielsprachen je Profil (erste = Standard). Vuk verfeinert Englisch
+// und übt zusätzlich Deutsch; Andrijana lernt Deutsch. Serbisch wird aktuell
+// keinem Profil angeboten. Fortschritt wird pro Zielsprache getrennt gespeichert
+// (lt-exlib-<target>), damit sich die Sprachen nicht vermischen.
+const TARGETS_FOR_USER: Record<UserId, ExTarget[]> = {
+  vuk: ['en', 'de'],
+  andrijana: ['de'],
+}
+const TARGET_LABEL: Record<ExTarget, string> = { de: 'DE', en: 'EN', sr: 'SR' }
+
+function loadLibTarget(user: UserId, targets: ExTarget[]): ExTarget {
+  try {
+    const t = localStorage.getItem(`lt-exlib-target-${user}`)
+    return t && targets.includes(t as ExTarget) ? (t as ExTarget) : targets[0]
+  } catch {
+    return targets[0]
+  }
+}
 
 function loadLibProgress(target: ExTarget): Record<ExLevel, number> {
   try {
@@ -90,30 +104,39 @@ export default function ExercisePanel({ active, lang, user }: Props) {
   const [doneToday, setDoneToday] = useState(0)
 
   // Übungsbibliothek (kuratiert, keine API-Kosten) — Zielsprache je Profil.
-  const target = targetForUser(user)
-  const levels = availableLevels(target)
-  const levelCounts = countByLevel(target)
-  const [libLevel, setLibLevel] = useState<ExLevel>(() => loadLibLevel(target, levels[0] ?? 'B1'))
-  const [libIdx, setLibIdx] = useState<Record<ExLevel, number>>(() => loadLibProgress(target))
+  // Vuk kann zwischen EN/DE umschalten; Andrijana hat nur DE.
+  const targets = TARGETS_FOR_USER[user]
+  const [libTarget, setLibTarget] = useState<ExTarget>(() => loadLibTarget(user, targets))
+  const levels = availableLevels(libTarget)
+  const levelCounts = countByLevel(libTarget)
+  const [libLevel, setLibLevel] = useState<ExLevel>(() => loadLibLevel(libTarget, availableLevels(libTarget)[0] ?? 'B1'))
+  const [libIdx, setLibIdx] = useState<Record<ExLevel, number>>(() => loadLibProgress(libTarget))
   const [libKey, setLibKey] = useState(0) // remountet die Antwort-Ansicht beim Blättern
   const uiLang: 'de' | 'en' = lang === 'en' ? 'en' : 'de'
-  const libList = exercisesForLevel(libLevel, target)
+  const libList = exercisesForLevel(libLevel, libTarget)
   const libPos = Math.min(libIdx[libLevel], Math.max(libList.length - 1, 0))
   const libEx = libList[libPos]
 
-  // Profilwechsel → andere Zielsprache: gültiges Level + Fortschritt neu laden.
+  // Profilwechsel → Zielsprache des neuen Profils (gemerkte oder Standard) laden.
   useEffect(() => {
-    const lv = loadLibLevel(target, levels[0] ?? 'B1')
-    setLibLevel(levels.includes(lv) ? lv : levels[0] ?? 'B1')
-    setLibIdx(loadLibProgress(target))
+    setLibTarget(loadLibTarget(user, targets))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+
+  // Zielsprache gewechselt: gültiges Level + Fortschritt neu laden.
+  useEffect(() => {
+    const valid = availableLevels(libTarget)
+    const lv = loadLibLevel(libTarget, valid[0] ?? 'B1')
+    setLibLevel(valid.includes(lv) ? lv : valid[0] ?? 'B1')
+    setLibIdx(loadLibProgress(libTarget))
     setLibKey((k) => k + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target])
+  }, [libTarget])
 
   function saveLibIdx(next: Record<ExLevel, number>) {
     setLibIdx(next)
     try {
-      localStorage.setItem(`lt-exlib-${target}`, JSON.stringify(next))
+      localStorage.setItem(`lt-exlib-${libTarget}`, JSON.stringify(next))
     } catch {
       // Speichern optional
     }
@@ -129,7 +152,17 @@ export default function ExercisePanel({ active, lang, user }: Props) {
     setLibLevel(l)
     setLibKey((k) => k + 1)
     try {
-      localStorage.setItem(`lt-exlib-level-${target}`, l)
+      localStorage.setItem(`lt-exlib-level-${libTarget}`, l)
+    } catch {
+      // Speichern optional
+    }
+  }
+
+  function pickTarget(t: ExTarget) {
+    if (t === libTarget) return
+    setLibTarget(t)
+    try {
+      localStorage.setItem(`lt-exlib-target-${user}`, t)
     } catch {
       // Speichern optional
     }
@@ -292,6 +325,21 @@ export default function ExercisePanel({ active, lang, user }: Props) {
             <h4>
               📚 Übungsbibliothek · <span style={{ color: 'var(--brand-ink)' }}>Zbirka vežbi</span>
             </h4>
+            {targets.length > 1 && (
+              <div className="exlib-levels" style={{ marginRight: 8 }}>
+                {targets.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={libTarget === t ? 'lvl active' : 'lvl'}
+                    onClick={() => pickTarget(t)}
+                    title={t === 'en' ? 'Englisch · English' : t === 'de' ? 'Deutsch' : 'Serbisch'}
+                  >
+                    {TARGET_LABEL[t]}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="exlib-levels">
               {levels.map((l) => (
                 <button
