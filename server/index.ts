@@ -13,7 +13,7 @@ import {
   type ContentBlock,
 } from './claude.js';
 import { synthesize, ttsConfigured, type TtsGender, type TtsLang } from './tts.js';
-import { createAccount, dbEnabled, getAccount, getAllState, putState, registeredLearners } from './db.js';
+import { createAccount, dbEnabled, getAccount, getAllState, putState, registeredLearners, upsertAccountPasscode } from './db.js';
 import { hashPasscode, issueToken, verifyPasscode, verifyToken } from './auth.js';
 import { mailConfigured, sendMail } from './mail.js';
 import { buildAdminSummary, buildReminder } from './reminder.js';
@@ -61,6 +61,10 @@ const PORT = Number(
 // Optionaler Schutz der öffentlichen Instanz: Ist ACCESS_CODE gesetzt, brauchen
 // API-Anfragen (außer /api/health) den passenden X-Access-Code-Header.
 const ACCESS_CODE = process.env.ACCESS_CODE;
+// Getrennter Einrichtungs-Code NUR fürs Anlegen/Zurücksetzen eines Passcodes.
+// Ist er gesetzt, darf ausschließlich, wer ihn kennt (du + Andrijana), ein
+// Passwort setzen — selbst mit dem App-Zugangscode geht es sonst nicht.
+const REGISTER_CODE = process.env.REGISTER_CODE;
 function requireAccessCode(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (!ACCESS_CODE || req.get('X-Access-Code') === ACCESS_CODE) {
     next();
@@ -412,6 +416,26 @@ app.post('/api/register', authLimiter, requireAccessCode, requireDb, jsonSmall, 
     res.status(400).json({ error: `Profil wählen und einen Passcode mit ${MIN_PASSCODE}–${MAX_PASSCODE} Zeichen setzen.` });
     return;
   }
+
+  // Ist der Einrichtungs-Code gesetzt, ist er PFLICHT — nur Kontoinhaber (du +
+  // Andrijana) dürfen ein Passwort setzen/zurücksetzen. Mit gültigem Code ist
+  // auch ein Reset erlaubt (Upsert), ohne einen offenen Reset-Endpunkt.
+  if (REGISTER_CODE) {
+    if (req.get('X-Register-Code') !== REGISTER_CODE) {
+      res.status(403).json({ error: 'Einrichtungs-Code fehlt oder ist falsch. Nur die Kontoinhaber dürfen ein Passwort setzen.' });
+      return;
+    }
+    try {
+      await upsertAccountPasscode(learner, hashPasscode(passcode), new Date().toISOString());
+      res.json({ token: issueToken(learner), learner });
+    } catch (err) {
+      console.error('[account] register(code):', err instanceof Error ? err.message : err);
+      res.status(502).json({ error: 'Registrierung gerade nicht möglich.' });
+    }
+    return;
+  }
+
+  // Ohne Einrichtungs-Code: nur Erstanlage (bestehendes Profil ist gesperrt).
   try {
     if (await getAccount(learner)) {
       res.status(409).json({ error: 'Für dieses Profil gibt es schon einen Passcode. Bitte anmelden.' });

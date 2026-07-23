@@ -64,10 +64,14 @@ export async function fetchStatus(retried = false): Promise<AccountStatus> {
   return { enabled: Boolean(j.enabled), registered }
 }
 
-async function authPost(path: string, learner: UserId, passcode: string): Promise<Session> {
+async function authPost(path: string, learner: UserId, passcode: string, registerCode?: string): Promise<Session> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...accessHeaders() }
+  // Einrichtungs-Code nur beim Registrieren mitschicken (Server verlangt ihn,
+  // wenn REGISTER_CODE gesetzt ist — dann dürfen nur Kontoinhaber ein Passwort setzen).
+  if (registerCode) headers['X-Register-Code'] = registerCode
   const res = await fetch(apiUrl(path), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...accessHeaders() },
+    headers,
     body: JSON.stringify({ learner, passcode }),
   })
   const j = (await res.json().catch(() => ({}))) as { token?: string; learner?: unknown; error?: string }
@@ -75,9 +79,9 @@ async function authPost(path: string, learner: UserId, passcode: string): Promis
   return { learner: isUserId(j.learner) ? j.learner : learner, token: j.token }
 }
 
-/** Erstregistrierung (Passcode festlegen). */
-export function registerAccount(learner: UserId, passcode: string): Promise<Session> {
-  return authPost('/api/register', learner, passcode)
+/** Erstregistrierung (Passcode festlegen). registerCode nötig, wenn der Server einen verlangt. */
+export function registerAccount(learner: UserId, passcode: string, registerCode?: string): Promise<Session> {
+  return authPost('/api/register', learner, passcode, registerCode)
 }
 
 /** Anmeldung mit vorhandenem Passcode. */

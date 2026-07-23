@@ -16,6 +16,8 @@ export default function LoginScreen({ status, lang, onLogin }: Props) {
   const ui = lang === 'en' ? 'en' : 'de'
   const [selected, setSelected] = useState<UserId | null>(null)
   const [passcode, setPasscode] = useState('')
+  // Einrichtungs-Code (nur beim Registrieren; nötig, wenn der Server ihn verlangt)
+  const [setupCode, setSetupCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -29,6 +31,8 @@ export default function LoginScreen({ status, lang, onLogin }: Props) {
           sub: 'Choose your profile and enter your passcode — your progress then syncs across all devices.',
           set: 'Set a passcode (min. 4 characters)',
           enter: 'Enter passcode',
+          setup: 'Setup code (only account owners)',
+          setupHint: 'Ask the account owner for the one-time setup code.',
           register: 'Create & sign in',
           login: 'Sign in',
           newHint: 'New here — pick a passcode',
@@ -39,6 +43,8 @@ export default function LoginScreen({ status, lang, onLogin }: Props) {
           sub: 'Profil wählen und Passcode eingeben — dein Fortschritt gleicht sich dann auf allen Geräten ab.',
           set: 'Passcode festlegen (min. 4 Zeichen)',
           enter: 'Passcode eingeben',
+          setup: 'Einrichtungs-Code (nur Kontoinhaber)',
+          setupHint: 'Den einmaligen Einrichtungs-Code kennt nur der Kontoinhaber.',
           register: 'Anlegen & anmelden',
           login: 'Anmelden',
           newHint: 'Neu hier — Passcode wählen',
@@ -53,7 +59,7 @@ export default function LoginScreen({ status, lang, onLogin }: Props) {
     try {
       const s = isRegistered
         ? await loginAccount(selected, passcode.trim())
-        : await registerAccount(selected, passcode.trim())
+        : await registerAccount(selected, passcode.trim(), setupCode.trim() || undefined)
       onLogin(s)
     } catch (err) {
       setError(err instanceof Error ? err.message : ui === 'en' ? 'Sign-in failed.' : 'Anmeldung fehlgeschlagen.')
@@ -64,6 +70,7 @@ export default function LoginScreen({ status, lang, onLogin }: Props) {
   function pick(u: UserId) {
     setSelected(u)
     setPasscode('')
+    setSetupCode('')
     setError(null)
   }
 
@@ -172,6 +179,30 @@ export default function LoginScreen({ status, lang, onLogin }: Props) {
                 boxSizing: 'border-box',
               }}
             />
+            {!isRegistered && (
+              <div style={{ marginTop: 12 }}>
+                <label style={{ fontSize: 12.5, color: 'var(--ink-soft)', fontWeight: 700 }}>{t.setup}</label>
+                <input
+                  type="password"
+                  value={setupCode}
+                  onChange={(e) => setSetupCode(e.target.value)}
+                  maxLength={128}
+                  placeholder="••••••"
+                  style={{
+                    width: '100%',
+                    marginTop: 6,
+                    padding: '10px 14px',
+                    borderRadius: 14,
+                    border: '1px solid var(--line)',
+                    background: 'var(--card-2)',
+                    color: 'var(--ink)',
+                    fontSize: 15,
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>{t.setupHint}</div>
+              </div>
+            )}
             {error && <div style={{ color: 'var(--brick)', fontSize: 13, marginTop: 10, fontWeight: 600 }}>{error}</div>}
             <button
               className="btn"

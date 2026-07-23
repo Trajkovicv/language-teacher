@@ -71,6 +71,28 @@ je etwas zu bezahlen. Es ist **kein** kostenpflichtiges Upgrade nötig.
 - Alle Konten-Endpunkte sind zusätzlich durch deinen `ACCESS_CODE` geschützt.
 - Passcodes werden nur als **scrypt-Hash mit Zufalls-Salt** gespeichert.
 
+### Wichtig: Wer darf ein Passwort setzen? (`REGISTER_CODE`)
+
+Der `ACCESS_CODE` ist der Schlüssel, um die App überhaupt zu benutzen — den kennt
+also auch Andrijana. Damit **nur du und Andrijana** ein Passwort *anlegen oder
+zurücksetzen* können (und niemand sonst, dem ihr die App mal gezeigt habt), gibt
+es einen getrennten **Einrichtungs-Code**:
+
+1. In Render eine Variable **`REGISTER_CODE`** = ein langes, geheimes Passwort setzen.
+2. **Speichern** (Server startet neu).
+3. Beim ersten Anlegen fragt der Anmelde-Bildschirm nach diesem Einrichtungs-Code.
+   Gib ihn **einmal** an Andrijana weiter, damit sie ihren Passcode setzen kann —
+   sonst behältst du ihn für dich.
+
+Wirkung: Ohne den `REGISTER_CODE` kann **niemand** ein Passwort setzen oder
+ändern — selbst wenn er den `ACCESS_CODE` kennt. Ein bereits gesetztes Passwort
+lässt sich nur mit dem `REGISTER_CODE` zurücksetzen (praktisch, falls jemand
+seinen Passcode vergisst). Ändern ohne den Code ist unmöglich.
+
+> Tipp: Setz `REGISTER_CODE` am besten sofort und lege dann die Passcodes für
+> Vuk und Andrijana einmal an — danach ist „wer darf Passwörter setzen" fest
+> auf euch zwei begrenzt.
+
 ## Optional: per CLI statt Dashboard
 
 Wer lieber die Kommandozeile nutzt:

@@ -85,6 +85,20 @@ export async function createAccount(learner: string, passcodeHash: string, now: 
   });
 }
 
+/**
+ * Passcode setzen ODER zurücksetzen (Upsert). Nur für den admin-gesteuerten
+ * Registrierungs-Pfad (Einrichtungs-Code) — erlaubt den Kontoinhabern einen
+ * Reset, ohne einen offenen Reset-Endpunkt zu schaffen.
+ */
+export async function upsertAccountPasscode(learner: string, passcodeHash: string, now: string): Promise<void> {
+  await ensureSchema();
+  await getClient().execute({
+    sql: `INSERT INTO accounts (learner, passcode_hash, created_at) VALUES (?, ?, ?)
+          ON CONFLICT (learner) DO UPDATE SET passcode_hash = excluded.passcode_hash`,
+    args: [learner, passcodeHash, now],
+  });
+}
+
 /** Welche Profile haben schon einen Passcode? Für den Login-Screen. */
 export async function registeredLearners(): Promise<string[]> {
   await ensureSchema();
