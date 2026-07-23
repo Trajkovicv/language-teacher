@@ -16,7 +16,7 @@ import { synthesize, ttsConfigured, type TtsGender, type TtsLang } from './tts.j
 import { createAccount, dbEnabled, getAccount, getAllState, putState, registeredLearners } from './db.js';
 import { hashPasscode, issueToken, verifyPasscode, verifyToken } from './auth.js';
 import { mailConfigured, sendMail } from './mail.js';
-import { buildReminder } from './reminder.js';
+import { buildAdminSummary, buildReminder } from './reminder.js';
 import type { LearnerId } from './prompts.js';
 import {
   dictionarySystemPrompt,
@@ -503,6 +503,25 @@ app.post('/api/reminder/run', reminderLimiter, jsonSmall, async (req, res) => {
     res.status(503).json({ error: 'E-Mail-Erinnerung ist nicht eingerichtet (DB oder SMTP fehlt).' });
     return;
   }
+
+  // Admin-Modus: Wochen-Überblick an dich (REMINDER_ADMIN_EMAIL).
+  if (req.body?.mode === 'admin') {
+    const to = process.env.REMINDER_ADMIN_EMAIL;
+    if (!to) {
+      res.json({ ok: true, results: [{ status: 'übersprungen (keine Admin-Adresse)' }] });
+      return;
+    }
+    try {
+      const mail = await buildAdminSummary();
+      await sendMail(to, mail.subject, mail.text, mail.html);
+      res.json({ ok: true, results: [{ mode: 'admin', status: 'gesendet', to }] });
+    } catch (err) {
+      console.error('[reminder] admin:', err instanceof Error ? err.message : err);
+      res.status(200).json({ ok: false, results: [{ mode: 'admin', status: 'Fehler', error: err instanceof Error ? err.message : String(err) }] });
+    }
+    return;
+  }
+
   const only = isLearnerId(req.body?.learner) ? [req.body.learner as LearnerId] : (['andrijana', 'vuk'] as LearnerId[]);
   const results: Array<Record<string, string>> = [];
   for (const learner of only) {

@@ -40,8 +40,14 @@ https://dashboard.render.com → **language-teacher-api** → **Environment** �
 | `MAIL_FROM` | `Mila – Sprachlehrerin <deine-verifizierte@adresse>` |
 | `REMINDER_ANDRIJANA_EMAIL` | Andrijanas E-Mail-Adresse |
 | `REMINDER_VUK_EMAIL` | (optional) Vuks E-Mail-Adresse |
+| `REMINDER_ADMIN_EMAIL` | (optional) **deine** Adresse für den Wochen-Überblick |
 | `REMINDER_SECRET` | ein selbst ausgedachtes langes Passwort (z. B. 30 Zeichen) |
 | `APP_URL` | (optional) `https://trajkovicv.github.io/language-teacher/` |
+
+> **Wochen-Überblick für dich:** Setzt du `REMINDER_ADMIN_EMAIL`, bekommst du
+> jeden Sonntag automatisch eine Mail mit dem Lernstand von Andrijana & Vuk
+> (Minuten, Sitzungen, Serie, „diese Woche nicht geübt"-Hinweis). Du musst dafür
+> nicht online sein. (Workflow: `.github/workflows/weekly-admin.yml`.)
 
 → **Save** (Render startet neu). Danach meldet `…/api/health` künftig `mail: true`.
 

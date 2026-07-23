@@ -34,3 +34,10 @@ jobs:
             --max-time 120 -d '{}' || echo 000)
           echo "HTTP $code"
           cat /tmp/resp.json 2>/dev/null || true
+          echo
+          # Rot werden (→ GitHub benachrichtigt dich), wenn ein echter Versand fehlschlug.
+          # Vor der Einrichtung (401/503) bleibt der Lauf gruen.
+          if grep -q '"status":"Fehler"' /tmp/resp.json 2>/dev/null; then
+            echo "::error::Mindestens eine Erinnerung konnte nicht gesendet werden."
+            exit 1
+          fi

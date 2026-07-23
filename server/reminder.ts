@@ -37,7 +37,14 @@ const PLAN_EN: string[] = [
 const WEEKDAY_DE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 const WEEKDAY_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-type Usage = { minutes?: number; sessions?: number; messages?: number; days?: string[]; firstSeen?: string };
+type Usage = {
+  minutes?: number;
+  sessions?: number;
+  messages?: number;
+  days?: string[];
+  firstSeen?: string;
+  lastSeen?: string;
+};
 
 function parseUsage(raw: string | undefined): Usage {
   if (!raw) return {};
@@ -147,6 +154,93 @@ export async function buildReminder(learner: LearnerId, now: Date = new Date()):
   ];
   const text = lines.filter((l) => l !== undefined).join('\n');
   const html = mailHtml(info.name, weekday, topic, info.level, minutes, sessions, activeDays, streak, focusLine, false);
+  return { subject, text, html };
+}
+
+/** Kurzer Lernstand aus dem Gedächtnis-Profil (erster Teil, gekürzt). */
+function focusOf(state: Record<string, string>): string {
+  const profile = (state['memory:mila'] || state['memory:ana'] || state['memory:luka'] || '').trim();
+  if (!profile) return '';
+  try {
+    const p = JSON.parse(profile) as { profile?: string };
+    const txt = typeof p?.profile === 'string' ? p.profile : profile;
+    return txt.replace(/\s+/g, ' ').slice(0, 220);
+  } catch {
+    return profile.replace(/\s+/g, ' ').slice(0, 220);
+  }
+}
+
+/** Anzahl aktiver Tage innerhalb der letzten 7 Kalendertage. */
+function activeThisWeek(days: string[], now: Date): number {
+  const recent = new Set<string>();
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    recent.add(isoDay(d));
+  }
+  return days.filter((d) => recent.has(d)).length;
+}
+
+/**
+ * Wochen-Überblick für die Eltern/Admin (alle Profile) — auf Deutsch.
+ * Geht an REMINDER_ADMIN_EMAIL, damit du den Stand bekommst, ohne online zu sein.
+ */
+export async function buildAdminSummary(now: Date = new Date()): Promise<ReminderMail> {
+  const textBlocks: string[] = [];
+  const htmlBlocks: string[] = [];
+
+  for (const learner of ['andrijana', 'vuk'] as LearnerId[]) {
+    const info = LEARNERS[learner];
+    const state = await getAllState(learner).catch(() => ({}) as Record<string, string>);
+    const usage = parseUsage(state['usage']);
+    const minutes = Math.max(0, Math.round(usage.minutes ?? 0));
+    const sessions = usage.sessions ?? 0;
+    const messages = usage.messages ?? 0;
+    const days = Array.isArray(usage.days) ? usage.days : [];
+    const streak = streakOf(days);
+    const week = activeThisWeek(days, now);
+    const lastSeen = usage.lastSeen || '—';
+    const focus = focusOf(state);
+    const registered = Boolean(state['usage'] || focus);
+
+    const heading = `${info.name} (${info.target === 'de' ? 'Deutsch' : 'Englisch'} ${info.level})`;
+    const line = registered
+      ? `~${minutes} Min gesamt · ${sessions} Sitzungen · ${messages} Nachrichten · diese Woche an ${week} Tag${week === 1 ? '' : 'en'} aktiv · Serie ${streak} · zuletzt aktiv: ${lastSeen}`
+      : 'Noch kein Konto / keine Aktivität — evtl. Anmeldung/Passcode noch offen.';
+    const hint = registered && week === 0 ? '  ⚠️ Diese Woche noch nicht geübt — vielleicht kurz erinnern.' : '';
+
+    textBlocks.push(`• ${heading}\n  ${line}${hint}${focus ? `\n  Lernstand: ${focus}` : ''}`);
+    htmlBlocks.push(
+      `<div style="background:#F7F1F5;border-radius:12px;padding:12px 14px;margin-bottom:10px">
+        <div style="font-weight:800">${esc(heading)}</div>
+        <div style="font-size:14px;margin-top:4px">${esc(line)}</div>
+        ${hint ? `<div style="font-size:14px;color:#E0575F;margin-top:4px">${esc(hint.trim())}</div>` : ''}
+        ${focus ? `<div style="font-size:13px;color:#8A8398;margin-top:6px">Lernstand: ${esc(focus)}</div>` : ''}
+      </div>`,
+    );
+  }
+
+  const subject = 'Wochenüberblick: Andrijana & Vuk (Lernstand)';
+  const text = [
+    'Hallo!',
+    '',
+    'Kurzer Wochenüberblick zum Lernstand:',
+    '',
+    ...textBlocks,
+    '',
+    'Diese Mail kommt automatisch — du musst dafür nicht online sein.',
+    '— Language-Teacher-App',
+  ].join('\n');
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#241F2E">
+    <div style="background:linear-gradient(135deg,#FF6E97,#FFA36B);border-radius:20px 20px 0 0;padding:20px 24px;color:#fff">
+      <div style="font-size:20px;font-weight:800">Wochenüberblick 📊</div>
+      <div style="opacity:.92;margin-top:2px">Lernstand von Andrijana & Vuk</div>
+    </div>
+    <div style="background:#fff;border:1px solid #eee;border-top:none;border-radius:0 0 20px 20px;padding:20px 24px">
+      ${htmlBlocks.join('')}
+      <div style="margin-top:8px;color:#8A8398;font-size:13px">Diese Mail kommt automatisch — du musst dafür nicht online sein.</div>
+    </div>
+  </div>`;
   return { subject, text, html };
 }
 
