@@ -4,6 +4,7 @@ import { Icon } from './Icons'
 import MultipleChoice from './MultipleChoice'
 import { postJson } from '../lib/api'
 import { availableLevels, countByLevel, exercisesForLevel, type ExLevel, type ExTarget, type LibraryExercise } from '../data/exercises'
+import { recordAnswer } from '../lib/progress'
 import type { UserId } from '../lib/users'
 import type { Lang } from '../lib/i18n'
 
@@ -57,11 +58,23 @@ export type Exercise =
   | { type: 'blank'; question: string; bank: string[]; correctWord: string; feedbackCorrect: string; feedbackWrong: string }
 
 /** Lückentext mit Wortbank (Mockup-Komponente, generalisiert). */
-function ClozeCard({ ex }: { ex: Extract<Exercise, { type: 'blank' }> }) {
+function ClozeCard({
+  ex,
+  onAnswered,
+}: {
+  ex: Extract<Exercise, { type: 'blank' }>
+  onAnswered?: (correct: boolean) => void
+}) {
   const [picked, setPicked] = useState<string | null>(null)
   const ok = picked !== null && picked === ex.correctWord
   const [before, ...rest] = ex.question.split('___')
   const after = rest.join('___')
+
+  function pick(w: string) {
+    if (picked !== null) return // nur die erste Antwort zählt
+    onAnswered?.(w === ex.correctWord)
+    setPicked(w)
+  }
 
   return (
     <>
@@ -72,7 +85,7 @@ function ClozeCard({ ex }: { ex: Extract<Exercise, { type: 'blank' }> }) {
       </div>
       <div className="bank">
         {ex.bank.map((w) => (
-          <button key={w} className="bk" type="button" onClick={() => setPicked(w)}>
+          <button key={w} className="bk" type="button" onClick={() => pick(w)}>
             {w}
           </button>
         ))}
@@ -166,6 +179,17 @@ export default function ExercisePanel({ active, lang, user }: Props) {
     } catch {
       // Speichern optional
     }
+  }
+
+  // Performance-Tracking (Phase 2): erste Antwort einer Übung verbuchen.
+  function noteLibAnswer(correct: boolean) {
+    if (!libEx) return
+    const topic = libTarget === 'en' ? libEx.topic.en : libEx.topic.de
+    recordAnswer(user, { target: libTarget, level: libLevel, index: libPos, topic, correct })
+  }
+  function noteGenAnswer(correct: boolean) {
+    const topic = prompt.trim() || (libTarget === 'en' ? 'Custom practice' : 'Eigene Übung')
+    recordAnswer(user, { target: libTarget, level: libLevel, topic, correct })
   }
 
   async function generate(type: 'mc' | 'blank', wish: { topic?: string; prompt?: string }) {
@@ -303,7 +327,7 @@ export default function ExercisePanel({ active, lang, user }: Props) {
               {exercise.type === 'blank' ? 'Lückentext · Popuni prazninu' : 'Multiple Choice'}
             </span>
             {exercise.type === 'blank' ? (
-              <ClozeCard key={exerciseKey} ex={exercise} />
+              <ClozeCard key={exerciseKey} ex={exercise} onAnswered={noteGenAnswer} />
             ) : (
               <>
                 <div className="q">{exercise.question}</div>
@@ -313,6 +337,7 @@ export default function ExercisePanel({ active, lang, user }: Props) {
                   correctIndex={exercise.correctIndex}
                   feedbackCorrect={exercise.feedbackCorrect}
                   feedbackWrong={exercise.feedbackWrong}
+                  onAnswered={noteGenAnswer}
                 />
               </>
             )}
@@ -366,7 +391,11 @@ export default function ExercisePanel({ active, lang, user }: Props) {
                 </span>
               </div>
               {libEx.type === 'blank' ? (
-                <ClozeCard key={`${libLevel}-${libPos}-${libKey}`} ex={localize(libEx, uiLang) as Extract<Exercise, { type: 'blank' }>} />
+                <ClozeCard
+                  key={`${libLevel}-${libPos}-${libKey}`}
+                  ex={localize(libEx, uiLang) as Extract<Exercise, { type: 'blank' }>}
+                  onAnswered={noteLibAnswer}
+                />
               ) : (
                 <>
                   <div className="q">{libEx.q[uiLang]}</div>
@@ -376,6 +405,7 @@ export default function ExercisePanel({ active, lang, user }: Props) {
                     correctIndex={libEx.correctIndex}
                     feedbackCorrect={libEx.fbOk[uiLang]}
                     feedbackWrong={libEx.fbNo[uiLang]}
+                    onAnswered={noteLibAnswer}
                   />
                 </>
               )}

@@ -12,6 +12,8 @@ import type { UserId } from './users'
 // usage.ts passen: `lt-usage-<user>`, `lt-memory-<user>-<char>`).
 function localKeyFor(learner: UserId, serverKey: string): string | null {
   if (serverKey === 'usage') return `lt-usage-${learner}`
+  if (serverKey === 'progress') return `lt-progress-${learner}`
+  if (serverKey === 'words') return `lt-saved-${learner}`
   const m = /^memory:(mila|luka|ana)$/.exec(serverKey)
   return m ? `lt-memory-${learner}-${m[1]}` : null
 }

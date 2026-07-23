@@ -107,8 +107,8 @@ function parsePrimaryLang(value: unknown): PrimaryLang {
 const MIN_PASSCODE = 4;
 const MAX_PASSCODE = 64;
 const MAX_STATE_VALUE = 60_000;
-// Erlaubte KV-Schlüssel: Nutzungs-Statistik + Lern-Gedächtnis je Charakter.
-const STATE_KEY_RE = /^(usage|memory:(mila|luka|ana))$/;
+// Erlaubte KV-Schlüssel: Nutzung, Übungs-Fortschritt, Wortschatz + Gedächtnis je Charakter.
+const STATE_KEY_RE = /^(usage|progress|words|memory:(mila|luka|ana))$/;
 
 function parsePasscode(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -158,7 +158,7 @@ app.get('/api/health', (_req, res) => {
     mail: mailConfigured(),
     // Deploy-Marker: erlaubt sicheres Erkennen, dass die neue Version live ist,
     // bevor ein Test-Versand ausgelöst wird.
-    rev: 'report-v5',
+    rev: 'report-v6',
     mailApi: Boolean(process.env.BREVO_API_KEY),
   });
 });

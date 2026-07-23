@@ -161,6 +161,44 @@ function focusOf(state: Record<string, string>): string {
   }
 }
 
+// ===== Übungs-Fortschritt (Phase 2) =====
+type Stat = { a: number; c: number };
+type Prog = { answered: number; correct: number; doneKeys: string[]; topics: Record<string, Stat>; week: Stat; lastWeek: Stat };
+
+const n0 = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
+
+function parseProgress(raw: string | undefined): Prog {
+  const empty: Prog = { answered: 0, correct: 0, doneKeys: [], topics: {}, week: { a: 0, c: 0 }, lastWeek: { a: 0, c: 0 } };
+  if (!raw) return empty;
+  try {
+    const p = JSON.parse(raw) as Record<string, unknown>;
+    const topics: Record<string, Stat> = {};
+    if (p.topics && typeof p.topics === 'object') {
+      for (const [k, v] of Object.entries(p.topics as Record<string, Stat>)) topics[k] = { a: n0(v?.a), c: n0(v?.c) };
+    }
+    const w = p.week as Stat | undefined;
+    const lw = p.lastWeek as Stat | undefined;
+    return {
+      answered: n0(p.answered),
+      correct: n0(p.correct),
+      doneKeys: Array.isArray(p.doneKeys) ? (p.doneKeys as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+      topics,
+      week: { a: n0(w?.a), c: n0(w?.c) },
+      lastWeek: { a: n0(lw?.a), c: n0(lw?.c) },
+    };
+  } catch {
+    return empty;
+  }
+}
+
+// Gesamtzahl der Bibliotheks-Übungen je Sprach-/Level-Paar (für „X/N").
+const TOTALS: Record<string, number> = { 'de:B1': 14, 'de:B2': 90, 'en:B2': 15, 'en:C1': 27 };
+
+function doneCount(prog: Prog, target: string, level: string): number {
+  const prefix = `${target}:${level}:`;
+  return prog.doneKeys.reduce((s, k) => (k.startsWith(prefix) ? s + 1 : s), 0);
+}
+
 function fmtDuration(min: number, de: boolean): string {
   const m = Math.max(0, Math.round(min));
   const std = de ? 'Std' : 'h';
@@ -248,6 +286,54 @@ export async function buildReminder(learner: LearnerId, now: Date = new Date()):
   const tip = de ? TIP_DE[dow] : { de: TIP_EN[dow], sr: '' };
   const focus = focusOf(state);
 
+  // Übungs-Leistung (Phase 2) — nur echt, wenn schon Aufgaben beantwortet wurden.
+  const prog = parseProgress(state['progress']);
+  const acc = prog.answered > 0 ? Math.round((prog.correct / prog.answered) * 100) : 0;
+  const wAcc = prog.week.a > 0 ? Math.round((prog.week.c / prog.week.a) * 100) : null;
+  const lwAcc = prog.lastWeek.a > 0 ? Math.round((prog.lastWeek.c / prog.lastWeek.a) * 100) : null;
+  const courseDone = doneCount(prog, info.target, info.level);
+  const courseTotal = TOTALS[`${info.target}:${info.level}`] ?? 0;
+  const accColor = (p: number) => (p >= 75 ? '#12A06B' : p >= 50 ? '#E8871E' : '#E8477A');
+  const mastery = Object.entries(prog.topics)
+    .map(([k, s]) => ({ k, a: s.a, pct: s.a > 0 ? Math.round((s.c / s.a) * 100) : 0 }))
+    .filter((t) => t.a >= 3)
+    .sort((x, y) => y.a - x.a)
+    .slice(0, 4);
+
+  const perfBlock =
+    prog.answered > 0
+      ? `<tr><td style="padding:14px 26px 4px;">
+      <div style="font-size:10.5px;font-weight:800;letter-spacing:1px;color:#8A8398;padding-bottom:9px;">${de ? 'ÜBUNGS-LEISTUNG' : 'EXERCISE PERFORMANCE'}</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        ${kpiCell(`${acc}%`, de ? 'RICHTIG' : 'CORRECT')}
+        ${kpiCell(String(prog.answered), de ? 'BEANTWORTET' : 'ANSWERED')}
+        ${kpiCell(courseTotal ? `${courseDone}<span style="font-size:12px;color:#8A8398;">/${courseTotal}</span>` : String(courseDone), de ? 'KURS' : 'COURSE')}
+        ${kpiCell(wAcc === null ? '–' : `${wAcc}%`, de ? 'DIESE WOCHE' : 'THIS WEEK')}
+      </tr></table>
+      ${
+        wAcc !== null && lwAcc !== null
+          ? `<div style="font-size:12px;color:#8A8398;padding-top:8px;">${de ? 'Diese Woche' : 'This week'} ${wAcc}% · ${wAcc - lwAcc >= 0 ? '▲ +' + (wAcc - lwAcc) : '▼ ' + (wAcc - lwAcc)}% ${de ? 'ggü. Vorwoche' : 'vs last week'}</div>`
+          : ''
+      }
+      ${
+        mastery.length
+          ? `<div style="font-size:10.5px;font-weight:800;letter-spacing:1px;color:#8A8398;padding:12px 0 8px;">${de ? 'THEMEN-BEHERRSCHUNG' : 'TOPIC MASTERY'}</div>` +
+            mastery
+              .map(
+                (t) => `<div style="padding-bottom:8px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:12.5px;font-weight:700;color:#3C3646;">${esc(t.k)}</td>
+            <td align="right" style="font-size:12px;font-weight:800;color:${accColor(t.pct)};">${t.pct}%</td>
+          </tr></table>
+          <div style="padding-top:4px;">${progressBar(t.pct, accColor(t.pct))}</div>
+        </div>`,
+              )
+              .join('')
+          : ''
+      }
+    </td></tr>`
+      : '';
+
   const L = de
     ? {
         greet: `Guten Morgen, ${info.name}.`,
@@ -301,6 +387,9 @@ export async function buildReminder(learner: LearnerId, now: Date = new Date()):
     '',
     `${de ? 'INSGESAMT GEÜBT' : 'TOTAL'}: ${fmtDuration(totalMin, de)} (${sessions} ${de ? 'Sitzungen' : 'sessions'})`,
     `${de ? 'WOCHENZIEL' : 'WEEKLY GOAL'}: ${week}/${WEEKLY_GOAL} — ${L.status.replace('● ', '')}`,
+    prog.answered > 0
+      ? `${de ? 'RICHTIG-QUOTE' : 'ACCURACY'}: ${acc}% (${prog.answered} ${de ? 'beantwortet' : 'answered'}${courseTotal ? `, ${de ? 'Kurs' : 'course'} ${courseDone}/${courseTotal}` : ''})`
+      : '',
     '',
     `${L.next}: ${topic}`,
     `${L.nextMeta}`,
@@ -396,6 +485,8 @@ export async function buildReminder(learner: LearnerId, now: Date = new Date()):
       <div style="font-size:10.5px;font-weight:800;letter-spacing:1px;color:#8A8398;padding-bottom:9px;">${L.activity}</div>
       ${activityStrip(days, now, de ? SHORT_DE : SHORT_EN, L.today)}
     </td></tr>
+
+    ${perfBlock}
 
     <!-- Heute dran -->
     <tr><td style="padding:14px 26px 4px;">
