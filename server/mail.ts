@@ -16,21 +16,40 @@ export function mailConfigured(): boolean {
   return Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS && MAIL_FROM);
 }
 
-let transport: nodemailer.Transporter | null = null;
-function getTransport(): nodemailer.Transporter {
-  if (!transport) {
-    transport = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      // 465 = implizites TLS, sonst STARTTLS auf 587
-      secure: SMTP_PORT === 465,
-      auth: { user: SMTP_USER, pass: SMTP_PASS },
-    });
-  }
-  return transport;
+// Bewusst KEIN gecachter Transport: Render-Free/Brevo mögen kurzlebige
+// Verbindungen lieber; ein „wedged" Pool-Socket führte sonst zu Timeouts.
+// Kurze, klare Timeouts (schnell scheitern statt 2 Min hängen).
+function makeTransport(): nodemailer.Transporter {
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465, // 465 = implizites TLS, sonst STARTTLS auf 587
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    connectionTimeout: 15_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+    pool: false,
+  });
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function sendMail(to: string, subject: string, text: string, html?: string): Promise<void> {
   if (!mailConfigured()) throw new Error('SMTP nicht konfiguriert.');
-  await getTransport().sendMail({ from: MAIL_FROM, to, subject, text, html });
+  // Bis zu 3 Versuche mit kurzem Backoff — fängt kurzzeitige SMTP-Aussetzer ab.
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const transport = makeTransport();
+    try {
+      await transport.sendMail({ from: MAIL_FROM, to, subject, text, html });
+      return;
+    } catch (err) {
+      lastErr = err;
+      console.error(`[mail] Versuch ${attempt}/3 fehlgeschlagen:`, err instanceof Error ? err.message : err);
+    } finally {
+      transport.close();
+    }
+    if (attempt < 3) await sleep(attempt * 2000);
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('SMTP-Versand fehlgeschlagen.');
 }
