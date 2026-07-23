@@ -1,0 +1,36 @@
+name: Daily learning reminder
+
+# Ruft täglich den Server-Endpunkt auf, der die Lern-Erinnerung per E-Mail schickt.
+# Der eigentliche Versand passiert serverseitig (SMTP + Turso). Hier wird nur
+# ausgelöst — geschützt durch das Secret REMINDER_SECRET.
+#
+# Einrichtung (siehe ANLEITUNG-EMAIL.md):
+#  - GitHub → Repo → Settings → Secrets and variables → Actions:
+#      Secret  REMINDER_SECRET  = derselbe Wert wie in Render
+#      Variable API_BASE_URL    = https://language-teacher-api.onrender.com (meist schon gesetzt)
+#  - Uhrzeit unten anpassen (cron ist in UTC; 06:00 UTC ≈ 07:00/08:00 in der Schweiz).
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch: {} # erlaubt manuelles Auslösen zum Testen
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake server and trigger reminder
+        env:
+          API_BASE: ${{ vars.API_BASE_URL }}
+          REMINDER_SECRET: ${{ secrets.REMINDER_SECRET }}
+        run: |
+          if [ -z "$API_BASE" ]; then echo "API_BASE_URL Variable fehlt — bitte in den Repo-Variablen setzen."; exit 0; fi
+          # Render-Free aufwecken (Kaltstart ~50 s), Fehler ignorieren
+          curl -sS --max-time 120 "$API_BASE/api/health" -o /dev/null || true
+          code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+            -X POST "$API_BASE/api/reminder/run" \
+            -H "X-Reminder-Secret: $REMINDER_SECRET" \
+            -H 'Content-Type: application/json' \
+            --max-time 120 -d '{}' || echo 000)
+          echo "HTTP $code"
+          cat /tmp/resp.json 2>/dev/null || true

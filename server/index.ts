@@ -15,6 +15,9 @@ import {
 import { synthesize, ttsConfigured, type TtsGender, type TtsLang } from './tts.js';
 import { createAccount, dbEnabled, getAccount, getAllState, putState, registeredLearners } from './db.js';
 import { hashPasscode, issueToken, verifyPasscode, verifyToken } from './auth.js';
+import { mailConfigured, sendMail } from './mail.js';
+import { buildReminder } from './reminder.js';
+import type { LearnerId } from './prompts.js';
 import {
   dictionarySystemPrompt,
   exerciseSystemPrompt,
@@ -148,6 +151,7 @@ app.get('/api/health', (_req, res) => {
     apiKeyConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
     tts: ttsConfigured(),
     db: dbEnabled(),
+    mail: mailConfigured(),
   });
 });
 
@@ -470,6 +474,53 @@ app.put('/api/state', syncLimiter, requireAccessCode, requireDb, requireAccount,
     console.error('[state] put:', err instanceof Error ? err.message : err);
     res.status(502).json({ error: 'Sync gerade nicht möglich.' });
   }
+});
+
+// ============ Tägliche Lern-Erinnerung (E-Mail) ============
+// Wird von einem externen Cron (GitHub Actions) täglich aufgerufen. Schutz per
+// Secret-Header (NICHT ACCESS_CODE — der Cron kennt ihn nicht). Empfänger je
+// Lernprofil aus der Umgebung; fehlt einer, wird er übersprungen.
+const reminderLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Zu viele Anfragen.' },
+});
+
+const REMINDER_RECIPIENTS: Record<LearnerId, string | undefined> = {
+  andrijana: process.env.REMINDER_ANDRIJANA_EMAIL,
+  vuk: process.env.REMINDER_VUK_EMAIL,
+};
+
+app.post('/api/reminder/run', reminderLimiter, jsonSmall, async (req, res) => {
+  const secret = process.env.REMINDER_SECRET;
+  if (!secret || req.get('X-Reminder-Secret') !== secret) {
+    res.status(401).json({ error: 'Nicht autorisiert.' });
+    return;
+  }
+  if (!dbEnabled() || !mailConfigured()) {
+    res.status(503).json({ error: 'E-Mail-Erinnerung ist nicht eingerichtet (DB oder SMTP fehlt).' });
+    return;
+  }
+  const only = isLearnerId(req.body?.learner) ? [req.body.learner as LearnerId] : (['andrijana', 'vuk'] as LearnerId[]);
+  const results: Array<Record<string, string>> = [];
+  for (const learner of only) {
+    const to = REMINDER_RECIPIENTS[learner];
+    if (!to) {
+      results.push({ learner, status: 'übersprungen (keine Adresse)' });
+      continue;
+    }
+    try {
+      const mail = await buildReminder(learner);
+      await sendMail(to, mail.subject, mail.text, mail.html);
+      results.push({ learner, status: 'gesendet', to });
+    } catch (err) {
+      console.error(`[reminder] ${learner}:`, err instanceof Error ? err.message : err);
+      results.push({ learner, status: 'Fehler', error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  res.json({ ok: true, results });
 });
 
 // ============ Sprachausgabe (Azure TTS, Phase 3b vorgezogen) ============
