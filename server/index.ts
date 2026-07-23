@@ -156,6 +156,9 @@ app.get('/api/health', (_req, res) => {
     tts: ttsConfigured(),
     db: dbEnabled(),
     mail: mailConfigured(),
+    // Deploy-Marker: erlaubt sicheres Erkennen, dass die neue Version live ist,
+    // bevor ein Test-Versand ausgelöst wird.
+    rev: 'report-v2',
   });
 });
 
