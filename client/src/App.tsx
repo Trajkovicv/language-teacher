@@ -442,7 +442,7 @@ export default function App() {
                 speakAs(text, spokenLang, { force: true, explicit: true })
               }}
             />
-            <ExercisePanel active={tab === 'ex'} lang={lang} />
+            <ExercisePanel active={tab === 'ex'} lang={lang} user={user} />
           </section>
         </main>
       </div>

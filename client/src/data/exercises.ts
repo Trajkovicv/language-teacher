@@ -5,10 +5,16 @@
 
 export type ExLevel = 'B1' | 'B2' | 'C1'
 
+// Zielsprache der Übung: 'sr' = Serbisch lernen (DE/EN-Muttersprache, Standard),
+// 'de' = Deutsch lernen (Andrijana). Das Übungs-Panel filtert nach Profil.
+export type ExTarget = 'sr' | 'de'
+
 type L10n = { de: string; en: string }
 
 export type LibraryExercise = {
   level: ExLevel
+  /** Zielsprache; fehlt = 'sr' (die ursprüngliche Serbisch-Bibliothek). */
+  target?: ExTarget
   topic: L10n
   q: L10n
   fbOk: L10n
@@ -924,16 +930,659 @@ export const EXERCISES: LibraryExercise[] = [
     fbOk: { de: '✓ Tačno! „Ovim putem …" + „Vam" (groß!) ist der formelle Register.', en: '✓ Tačno! "Ovim putem …" + capitalised "Vam" is the formal register.' },
     fbNo: { de: 'Netačno — offiziell schreibt man: „Ovim putem želim da Vam se zahvalim …".', en: 'Netačno — officially you write: "Ovim putem želim da Vam se zahvalim …".' },
   },
+  // ================= Deutsch B2.1 · Alltag & Beruf (Schwerpunkt Pflege) =================
+  // Eigene Übungen (keine Buch-Kopie), thematisch an „Alltag & Beruf" B2.1 orientiert.
+  // Zielsprache Deutsch (für Andrijana). Erklärungen Deutsch + Englisch.
+
+  // --- Konjunktiv II (Höflichkeit / irreal) ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Konjunktiv II · höfliche Bitte', en: 'Subjunctive II · polite request' },
+    q: { de: 'Höflich bitten: „___ Sie mir bitte die Akte geben?"', en: 'Polite request: „___ Sie mir bitte die Akte geben?" (Could you …)' },
+    options: ['Könnten', 'Konnten', 'Kannten'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Konjunktiv II „könnten" macht die Bitte höflich. („konnten" = Präteritum, „kannten" = von kennen.)', en: '✓ Right! Konjunktiv II „könnten" makes the request polite. („konnten" = past of can, „kannten" = from kennen.)' },
+    fbNo: { de: 'Falsch — die höfliche Bitte nutzt den Konjunktiv II: „Könnten Sie …?" mit ö.', en: 'Wrong — a polite request uses Konjunktiv II: „Könnten Sie …?" with ö.' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Konjunktiv II · irreale Bedingung', en: 'Subjunctive II · unreal condition' },
+    q: { de: '„Wenn ich mehr Zeit ___, würde ich einen Deutschkurs machen." (irreal)', en: '„Wenn ich mehr Zeit ___, würde ich einen Deutschkurs machen." (if I had more time)' },
+    bank: ['hätte', 'habe', 'hatte'],
+    correctWord: 'hätte',
+    fbOk: { de: '✓ Richtig! Irreale Bedingung → Konjunktiv II „hätte". („habe" = Indikativ, „hatte" = Präteritum.)', en: '✓ Right! Unreal condition → Konjunktiv II „hätte".' },
+    fbNo: { de: 'Falsch — die irreale Bedingung braucht „hätte" (Konjunktiv II von haben).', en: 'Wrong — the unreal condition needs „hätte".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Konjunktiv II · Ratschlag', en: 'Subjunctive II · advice' },
+    q: { de: 'Ratschlag: „An deiner Stelle ___ ich mit der Stationsleitung sprechen."', en: 'Advice: „An deiner Stelle ___ ich mit der Stationsleitung sprechen." (I would …)' },
+    options: ['würde', 'werde', 'wurde'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Ratschlag mit Konjunktiv II: „würde … sprechen". („werde" = Futur, „wurde" = Präteritum.)', en: '✓ Right! Advice uses Konjunktiv II: „würde … sprechen".' },
+    fbNo: { de: 'Falsch — ein Ratschlag steht im Konjunktiv II: „würde sprechen".', en: 'Wrong — advice takes Konjunktiv II: „würde sprechen".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Konjunktiv II · höflicher Wunsch', en: 'Subjunctive II · polite wish' },
+    q: { de: '„Es ___ schön, wenn Sie pünktlich zur Übergabe kämen." (Wunsch)', en: '„Es ___ schön, wenn Sie pünktlich zur Übergabe kämen." (it would be nice)' },
+    bank: ['wäre', 'war', 'ist'],
+    correctWord: 'wäre',
+    fbOk: { de: '✓ Richtig! Höflicher/irrealer Wunsch → „wäre" (Konjunktiv II von sein).', en: '✓ Right! Polite/unreal wish → „wäre".' },
+    fbNo: { de: 'Falsch — der höfliche Wunsch braucht „wäre".', en: 'Wrong — the polite wish needs „wäre".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Konjunktiv II · Vergangenheit', en: 'Subjunctive II · past' },
+    q: { de: 'Irreal in der Vergangenheit: „Wenn ich das ___, hätte ich anders gehandelt."', en: 'Unreal past: „Wenn ich das ___, hätte ich anders gehandelt." (had known)' },
+    options: ['gewusst hätte', 'gewusst habe', 'wusste'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Irreal in der Vergangenheit: „hätte … gewusst" + „hätte … gehandelt".', en: '✓ Right! Unreal past: „hätte … gewusst".' },
+    fbNo: { de: 'Falsch — Vergangenheit irreal: „Wenn ich das gewusst hätte, …".', en: 'Wrong — unreal past: „Wenn ich das gewusst hätte, …".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Konjunktiv II · sehr höflich', en: 'Subjunctive II · very polite' },
+    q: { de: '„___ Sie mir sagen, wo die Notaufnahme ist?" (sehr höflich)', en: '„___ Sie mir sagen, wo die Notaufnahme ist?" (Could you …, very polite)' },
+    bank: ['Könnten', 'Können', 'Konnten'],
+    correctWord: 'Könnten',
+    fbOk: { de: '✓ Richtig! „Könnten Sie …?" ist höflicher als „Können Sie …?".', en: '✓ Right! „Könnten Sie …?" is more polite than „Können Sie …?".' },
+    fbNo: { de: 'Falsch — die höflichste Form ist „Könnten Sie …?".', en: 'Wrong — the most polite form is „Könnten Sie …?".' },
+  },
+
+  // --- Passiv ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Vorgangspassiv · Präsens', en: 'Passive · present' },
+    q: { de: 'Passiv: „Die Patientin ___ vom Arzt untersucht."', en: 'Passive: „Die Patientin ___ vom Arzt untersucht." (is examined)' },
+    options: ['wird', 'ist', 'hat'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Vorgangspassiv = werden + Partizip II: „wird untersucht".', en: '✓ Right! Process passive = werden + past participle: „wird untersucht".' },
+    fbNo: { de: 'Falsch — Vorgangspassiv Präsens: „wird untersucht".', en: 'Wrong — present passive: „wird untersucht".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Passiv · Perfekt', en: 'Passive · present perfect' },
+    q: { de: '„Der Verband ist gerade gewechselt ___." (Passiv Perfekt)', en: '„Der Verband ist gerade gewechselt ___." (has just been changed)' },
+    bank: ['worden', 'geworden', 'gewesen'],
+    correctWord: 'worden',
+    fbOk: { de: '✓ Richtig! Passiv Perfekt: „ist gewechselt worden" — im Passiv „worden" (ohne ge-).', en: '✓ Right! Passive perfect uses „worden" (no ge-): „ist gewechselt worden".' },
+    fbNo: { de: 'Falsch — im Passiv Perfekt heißt es „worden", nicht „geworden".', en: 'Wrong — passive perfect uses „worden", not „geworden".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Passiv · mit Modalverb', en: 'Passive · with modal' },
+    q: { de: 'Passiv mit Modalverb: „Die Dokumentation ___ sofort ausgefüllt werden."', en: 'Modal passive: „Die Dokumentation ___ sofort ausgefüllt werden." (must be completed)' },
+    options: ['muss', 'musste werden', 'wird muss'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Modalverb + Partizip II + werden: „muss ausgefüllt werden".', en: '✓ Right! Modal + past participle + werden: „muss ausgefüllt werden".' },
+    fbNo: { de: 'Falsch — Struktur: Modalverb + Partizip II + „werden".', en: 'Wrong — structure: modal + past participle + „werden".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Zustandspassiv', en: 'Statal passive' },
+    q: { de: '„Die Tür ___ abgeschlossen." (Zustand, kein Vorgang)', en: '„Die Tür ___ abgeschlossen." (state/result, not process)' },
+    bank: ['ist', 'wird', 'hat'],
+    correctWord: 'ist',
+    fbOk: { de: '✓ Richtig! Zustandspassiv = sein + Partizip II: „ist abgeschlossen" (Ergebnis).', en: '✓ Right! Statal passive = sein + past participle: „ist abgeschlossen" (result).' },
+    fbNo: { de: 'Falsch — der Zustand (Ergebnis) nutzt „sein": „ist abgeschlossen".', en: 'Wrong — the resulting state uses „sein": „ist abgeschlossen".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Passiv · Präteritum', en: 'Passive · past' },
+    q: { de: 'Passiv Präteritum: „Das Medikament ___ gestern verabreicht."', en: 'Past passive: „Das Medikament ___ gestern verabreicht." (was administered)' },
+    options: ['wurde', 'ist geworden', 'war'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Passiv Präteritum: „wurde verabreicht".', en: '✓ Right! Past passive: „wurde verabreicht".' },
+    fbNo: { de: 'Falsch — Passiv Präteritum: „wurde verabreicht".', en: 'Wrong — past passive: „wurde verabreicht".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Passiv · Agens (von/durch)', en: 'Passive · agent (von/durch)' },
+    q: { de: '„Der Patient wurde ___ den Pfleger gewaschen." (handelnde Person)', en: '„Der Patient wurde ___ den Pfleger gewaschen." (by the carer)' },
+    bank: ['von', 'durch', 'mit'],
+    correctWord: 'von',
+    fbOk: { de: '✓ Richtig! Die handelnde Person steht mit „von": „von dem Pfleger". („durch" = Mittel.)', en: '✓ Right! The agent takes „von": „von dem Pfleger". („durch" = means.)' },
+    fbNo: { de: 'Falsch — Personen (Agens) mit „von": „von dem Pfleger".', en: 'Wrong — the agent (person) takes „von".' },
+  },
+
+  // --- Konnektoren / Nebensätze ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'weil · Verbstellung', en: 'weil · verb position' },
+    q: { de: 'Grund im Nebensatz: „Ich bleibe zu Hause, weil ich krank ___."', en: 'Reason clause: „Ich bleibe zu Hause, weil ich krank ___." (am)' },
+    options: ['bin', 'ich bin', 'sein'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Nach „weil" steht das Verb am Satzende: „…, weil ich krank bin."', en: '✓ Right! After „weil" the verb goes to the end: „…, weil ich krank bin."' },
+    fbNo: { de: 'Falsch — „weil" schickt das Verb ans Ende: „…, weil ich krank bin."', en: 'Wrong — „weil" sends the verb to the end.' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'deshalb · Folge (Hauptsatz)', en: 'deshalb · consequence' },
+    q: { de: 'Folge: „Ich war müde, ___ habe ich früh Schluss gemacht."', en: 'Consequence: „Ich war müde, ___ habe ich früh Schluss gemacht." (therefore)' },
+    options: ['deshalb', 'weil', 'obwohl'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „deshalb" verbindet zwei Hauptsätze mit Inversion: „…, deshalb habe ich …".', en: '✓ Right! „deshalb" links two main clauses with inversion.' },
+    fbNo: { de: 'Falsch — hier passt „deshalb" (Folge, Hauptsatz + Inversion).', en: 'Wrong — the consequence uses „deshalb".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'obwohl · Gegensatz', en: 'obwohl · concession' },
+    q: { de: '„___ er Schmerzen hatte, kam er zur Arbeit." (Gegensatz, Nebensatz)', en: '„___ er Schmerzen hatte, kam er zur Arbeit." (although)' },
+    bank: ['Obwohl', 'Trotzdem', 'Wegen'],
+    correctWord: 'Obwohl',
+    fbOk: { de: '✓ Richtig! „Obwohl" leitet den Gegensatz als Nebensatz ein (Verb am Ende).', en: '✓ Right! „Obwohl" introduces a concessive clause (verb at the end).' },
+    fbNo: { de: 'Falsch — der Nebensatz-Gegensatz nutzt „obwohl" („trotzdem" steht im Hauptsatz).', en: 'Wrong — the concessive clause uses „obwohl".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'damit vs. um … zu', en: 'damit vs. um … zu' },
+    q: { de: 'Zweck bei verschiedenen Subjekten: „Ich erkläre es langsam, ___ die Patientin alles versteht."', en: 'Purpose, different subjects: „Ich erkläre es langsam, ___ die Patientin alles versteht." (so that)' },
+    options: ['damit', 'um zu', 'weil'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Verschiedene Subjekte (ich / die Patientin) → „damit". „um … zu" nur bei gleichem Subjekt.', en: '✓ Right! Different subjects → „damit"; „um … zu" only with the same subject.' },
+    fbNo: { de: 'Falsch — zwei verschiedene Subjekte → „damit".', en: 'Wrong — two different subjects → „damit".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'um … zu · gleiches Subjekt', en: 'um … zu · same subject' },
+    q: { de: '„Sie macht eine Fortbildung, ___ ihre Chancen zu verbessern."', en: '„Sie macht eine Fortbildung, ___ ihre Chancen zu verbessern." (in order to)' },
+    bank: ['um', 'damit', 'für'],
+    correctWord: 'um',
+    fbOk: { de: '✓ Richtig! Gleiches Subjekt → „um … zu + Infinitiv": „um … zu verbessern".', en: '✓ Right! Same subject → „um … zu + infinitive".' },
+    fbNo: { de: 'Falsch — gleiches Subjekt und Zweck → „um … zu".', en: 'Wrong — same subject and purpose → „um … zu".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'sodass · Folge', en: 'sodass · result' },
+    q: { de: 'Folge: „Er sprach sehr leise, ___ ihn niemand verstand."', en: 'Result: „Er sprach sehr leise, ___ ihn niemand verstand." (so that)' },
+    options: ['sodass', 'damit', 'obwohl'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Unbeabsichtigte Folge → „sodass". („damit" wäre Absicht.)', en: '✓ Right! Unintended result → „sodass". („damit" = intention.)' },
+    fbNo: { de: 'Falsch — die Folge nennt man mit „sodass".', en: 'Wrong — the result is expressed with „sodass".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'indem · Mittel/Art und Weise', en: 'indem · means' },
+    q: { de: '„Man beugt Stürzen vor, ___ man die Wege frei hält." (Mittel)', en: '„Man beugt Stürzen vor, ___ man die Wege frei hält." (by …)' },
+    bank: ['indem', 'damit', 'sodass'],
+    correctWord: 'indem',
+    fbOk: { de: '✓ Richtig! „indem" beschreibt das Mittel/Wie: „…, indem man …".', en: '✓ Right! „indem" expresses the means/how.' },
+    fbNo: { de: 'Falsch — das Mittel/Wie drückt „indem" aus.', en: 'Wrong — the means is expressed with „indem".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'je … desto', en: 'je … desto' },
+    q: { de: 'Verhältnis: „___ mehr man übt, desto sicherer wird man."', en: 'Correlation: „___ mehr man übt, desto sicherer wird man." (the more …)' },
+    options: ['Je', 'Umso', 'Wie'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „je + Komparativ …, desto + Komparativ …": „Je mehr …, desto sicherer …".', en: '✓ Right! „je + comparative …, desto + comparative …".' },
+    fbNo: { de: 'Falsch — der erste Teil beginnt mit „je": „Je mehr …, desto …".', en: 'Wrong — the first part starts with „je".' },
+  },
+
+  // --- Temporale Nebensätze ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'während · Gleichzeitigkeit', en: 'während · simultaneity' },
+    q: { de: 'Gleichzeitig: „___ ich die Patientin wusch, klingelte das Telefon."', en: 'Simultaneous: „___ ich die Patientin wusch, klingelte das Telefon." (while)' },
+    options: ['Während', 'Nachdem', 'Bevor'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Gleichzeitigkeit → „während".', en: '✓ Right! Simultaneity → „während".' },
+    fbNo: { de: 'Falsch — zwei gleichzeitige Handlungen → „während".', en: 'Wrong — two simultaneous actions → „während".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'bevor · Vorzeitigkeit', en: 'bevor · before' },
+    q: { de: '„___ du das Zimmer betrittst, desinfizierst du die Hände." (vorher)', en: '„___ du das Zimmer betrittst, desinfizierst du die Hände." (before)' },
+    bank: ['Bevor', 'Nachdem', 'Während'],
+    correctWord: 'Bevor',
+    fbOk: { de: '✓ Richtig! Die spätere Handlung folgt auf „bevor".', en: '✓ Right! „bevor" marks what happens first.' },
+    fbNo: { de: 'Falsch — „vorher" drückt „bevor" aus.', en: 'Wrong — „before" is expressed with „bevor".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'nachdem · Zeitenfolge', en: 'nachdem · sequence of tenses' },
+    q: { de: 'Zeitenfolge: „Nachdem sie die Tabletten ___, dokumentierte sie es."', en: 'Tense sequence: „Nachdem sie die Tabletten ___, dokumentierte sie es." (had given)' },
+    options: ['gegeben hatte', 'gab', 'gibt'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Nach „nachdem" die Vorzeitigkeit: Plusquamperfekt „gegeben hatte" + Präteritum im Hauptsatz.', en: '✓ Right! „nachdem" needs the earlier tense: pluperfect „gegeben hatte".' },
+    fbNo: { de: 'Falsch — „nachdem" braucht die vorzeitige Zeit: „gegeben hatte".', en: 'Wrong — „nachdem" needs the pluperfect: „gegeben hatte".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'seitdem', en: 'seitdem · since' },
+    q: { de: '„___ sie in Deutschland arbeitet, hat sie viel dazugelernt." (seit dem Zeitpunkt)', en: '„___ sie in Deutschland arbeitet, hat sie viel dazugelernt." (ever since)' },
+    bank: ['Seitdem', 'Bis', 'Bevor'],
+    correctWord: 'Seitdem',
+    fbOk: { de: '✓ Richtig! „Seitdem" = ab einem Zeitpunkt bis jetzt.', en: '✓ Right! „Seitdem" = from a point in time until now.' },
+    fbNo: { de: 'Falsch — „ab dem Zeitpunkt bis jetzt" heißt „seitdem".', en: 'Wrong — „since then/ever since" is „seitdem".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'bis · Endpunkt', en: 'bis · until' },
+    q: { de: 'Endpunkt: „Sie bleibt beim Patienten, ___ der Arzt kommt."', en: 'End point: „Sie bleibt beim Patienten, ___ der Arzt kommt." (until)' },
+    options: ['bis', 'seit', 'während'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Der Endpunkt einer Handlung → „bis".', en: '✓ Right! The end point of an action → „bis".' },
+    fbNo: { de: 'Falsch — der Endpunkt wird mit „bis" markiert.', en: 'Wrong — the end point is marked with „bis".' },
+  },
+
+  // --- Relativsätze ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Relativsatz · Nominativ', en: 'Relative clause · nominative' },
+    q: { de: 'Relativsatz: „Das ist die Kollegin, ___ heute Nachtdienst hat."', en: 'Relative clause: „Das ist die Kollegin, ___ heute Nachtdienst hat." (who)' },
+    options: ['die', 'der', 'das'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Feminin, Subjekt → Nominativ „die".', en: '✓ Right! Feminine subject → nominative „die".' },
+    fbNo: { de: 'Falsch — feminines Subjekt im Relativsatz → „die".', en: 'Wrong — feminine subject → „die".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Relativsatz · Akkusativ', en: 'Relative clause · accusative' },
+    q: { de: '„Das Medikament, ___ der Arzt verschrieben hat, wirkt gut." (Akkusativ)', en: '„Das Medikament, ___ der Arzt verschrieben hat, wirkt gut." (which)' },
+    bank: ['das', 'dem', 'der'],
+    correctWord: 'das',
+    fbOk: { de: '✓ Richtig! Neutrum, Akkusativobjekt → „das" (verschreiben + Akk.).', en: '✓ Right! Neuter accusative object → „das".' },
+    fbNo: { de: 'Falsch — Neutrum im Akkusativ → „das".', en: 'Wrong — neuter accusative → „das".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Relativsatz · Dativ', en: 'Relative clause · dative' },
+    q: { de: 'Relativsatz Dativ: „Die Frau, ___ ich geholfen habe, hat sich bedankt."', en: 'Dative relative: „Die Frau, ___ ich geholfen habe, hat sich bedankt." (whom)' },
+    options: ['der', 'die', 'den'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „helfen" + Dativ → feminin Dativ „der".', en: '✓ Right! „helfen" + dative → feminine dative „der".' },
+    fbNo: { de: 'Falsch — „helfen" verlangt den Dativ: feminin „der".', en: 'Wrong — „helfen" takes the dative: feminine „der".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Relativsatz · mit Präposition', en: 'Relative clause · with preposition' },
+    q: { de: '„Der Kollege, ___ dem ich zusammenarbeite, ist sehr erfahren." (mit + Dativ)', en: '„Der Kollege, ___ dem ich zusammenarbeite, ist sehr erfahren." (with whom)' },
+    bank: ['mit', 'für', 'über'],
+    correctWord: 'mit',
+    fbOk: { de: '✓ Richtig! „zusammenarbeiten mit" → „…, mit dem ich …".', en: '✓ Right! „zusammenarbeiten mit" → „…, mit dem ich …".' },
+    fbNo: { de: 'Falsch — es heißt „zusammenarbeiten mit": „…, mit dem …".', en: 'Wrong — it is „zusammenarbeiten mit".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Relativadverb · wo', en: 'Relative adverb · wo' },
+    q: { de: 'Ort: „Das ist die Station, ___ ich arbeite."', en: 'Place: „Das ist die Station, ___ ich arbeite." (where)' },
+    options: ['wo', 'die', 'wohin'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Bei Orten kann „wo" das Relativpronomen ersetzen (= auf der ich arbeite).', en: '✓ Right! For places „wo" can replace the relative pronoun.' },
+    fbNo: { de: 'Falsch — für den Ort passt „wo" (oder „auf der").', en: 'Wrong — for the place use „wo" (or „auf der").' },
+  },
+
+  // --- n-Deklination ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'n-Deklination · Dativ', en: 'Weak nouns · dative' },
+    q: { de: 'n-Deklination: „Ich spreche mit dem ___." (der Patient)', en: 'Weak noun: „Ich spreche mit dem ___." (the patient)' },
+    options: ['Patienten', 'Patient', 'Patients'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „der Patient" ist ein n-Nomen: im Dativ „dem Patienten".', en: '✓ Right! „der Patient" is a weak noun: dative „dem Patienten".' },
+    fbNo: { de: 'Falsch — „Patient" folgt der n-Deklination: „dem Patienten".', en: 'Wrong — „Patient" is a weak noun: „dem Patienten".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'n-Deklination · Akkusativ', en: 'Weak nouns · accusative' },
+    q: { de: '„Wir betreuen einen neuen ___." (der Kollege → Akkusativ)', en: '„Wir betreuen einen neuen ___." (colleague, accusative)' },
+    bank: ['Kollegen', 'Kollege', 'Kollegin'],
+    correctWord: 'Kollegen',
+    fbOk: { de: '✓ Richtig! „der Kollege" (n-Nomen) → Akkusativ „einen Kollegen".', en: '✓ Right! „der Kollege" (weak noun) → accusative „einen Kollegen".' },
+    fbNo: { de: 'Falsch — n-Deklination: „einen Kollegen".', en: 'Wrong — weak noun: „einen Kollegen".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'n-Deklination · Genitiv', en: 'Weak nouns · genitive' },
+    q: { de: 'n-Deklination: „Das ist die Aufgabe des ___." (der Praktikant)', en: 'Weak noun: „Das ist die Aufgabe des ___." (the trainee)' },
+    options: ['Praktikanten', 'Praktikant', 'Praktikants'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Genitiv des n-Nomens: „des Praktikanten".', en: '✓ Right! Genitive of the weak noun: „des Praktikanten".' },
+    fbNo: { de: 'Falsch — n-Nomen im Genitiv: „des Praktikanten".', en: 'Wrong — weak noun genitive: „des Praktikanten".' },
+  },
+
+  // --- Adjektivdeklination ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Adjektiv · bestimmter Artikel', en: 'Adjective · definite article' },
+    q: { de: 'Adjektivendung: „Der ___ Patient wartet." (nervös, Nominativ)', en: 'Adjective ending: „Der ___ Patient wartet." (nervous)' },
+    options: ['nervöse', 'nervöser', 'nervösen'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Nach bestimmtem Artikel im Nominativ: „der nervöse Patient" (-e).', en: '✓ Right! After a definite article (nominative): „der nervöse Patient".' },
+    fbNo: { de: 'Falsch — nach „der" im Nominativ endet das Adjektiv auf -e.', en: 'Wrong — after „der" (nominative) the ending is -e.' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Adjektiv · unbestimmter Artikel', en: 'Adjective · indefinite article' },
+    q: { de: '„Sie hat einen ___ Eindruck gemacht." (gut, Akkusativ maskulin)', en: '„Sie hat einen ___ Eindruck gemacht." (a good impression)' },
+    bank: ['guten', 'gutes', 'guter'],
+    correctWord: 'guten',
+    fbOk: { de: '✓ Richtig! „einen guten Eindruck" — maskulin Akkusativ nach „einen": -en.', en: '✓ Right! Masculine accusative after „einen": „einen guten Eindruck".' },
+    fbNo: { de: 'Falsch — maskulin Akkusativ nach „einen": „einen guten Eindruck".', en: 'Wrong — masculine accusative after „einen": -en.' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Adjektiv · ohne Artikel', en: 'Adjective · no article' },
+    q: { de: 'Ohne Artikel: „Wir arbeiten mit ___ Personal." (qualifiziert, Dativ)', en: 'No article: „Wir arbeiten mit ___ Personal." (qualified staff, dative)' },
+    options: ['qualifiziertem', 'qualifizierte', 'qualifizierten'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Ohne Artikel Dativ neutrum → starkes -em: „mit qualifiziertem Personal".', en: '✓ Right! No article, dative neuter → strong -em.' },
+    fbNo: { de: 'Falsch — ohne Artikel im Dativ: „mit qualifiziertem Personal".', en: 'Wrong — no article, dative: -em ending.' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Adjektiv · Plural', en: 'Adjective · plural' },
+    q: { de: '„Die ___ Kolleginnen helfen mir." (nett, Nominativ Plural)', en: '„Die ___ Kolleginnen helfen mir." (the nice colleagues)' },
+    bank: ['netten', 'nette', 'nettes'],
+    correctWord: 'netten',
+    fbOk: { de: '✓ Richtig! Nach „die" im Plural endet das Adjektiv auf -en: „die netten Kolleginnen".', en: '✓ Right! After „die" (plural) the ending is -en.' },
+    fbNo: { de: 'Falsch — Plural nach „die": „die netten Kolleginnen" (-en).', en: 'Wrong — plural after „die": -en.' },
+  },
+
+  // --- Verben mit Präposition + Präpositionaladverbien ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Verb + Präposition · sich kümmern um', en: 'Verb + preposition · care for' },
+    q: { de: 'Verb + Präposition: „Ich kümmere mich ___ die Patienten."', en: 'Verb + preposition: „Ich kümmere mich ___ die Patienten." (about/for)' },
+    options: ['um', 'für', 'an'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „sich kümmern um" + Akkusativ.', en: '✓ Right! „sich kümmern um" + accusative.' },
+    fbNo: { de: 'Falsch — es heißt „sich kümmern um".', en: 'Wrong — it is „sich kümmern um".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'sich freuen auf / über', en: 'sich freuen auf / über' },
+    q: { de: '„Sie freut sich ___ das Wochenende." (Vorfreude)', en: '„Sie freut sich ___ das Wochenende." (looking forward to)' },
+    bank: ['auf', 'über', 'für'],
+    correctWord: 'auf',
+    fbOk: { de: '✓ Richtig! „sich freuen auf" = Vorfreude (Zukunft). „über" = über etwas Geschehenes.', en: '✓ Right! „sich freuen auf" = looking forward (future).' },
+    fbNo: { de: 'Falsch — Vorfreude → „sich freuen auf".', en: 'Wrong — anticipation → „sich freuen auf".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'warten auf', en: 'wait for' },
+    q: { de: 'Verb + Präposition: „Wir warten ___ die Ergebnisse."', en: 'Verb + preposition: „Wir warten ___ die Ergebnisse." (for)' },
+    options: ['auf', 'für', 'nach'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „warten auf" + Akkusativ.', en: '✓ Right! „warten auf" + accusative.' },
+    fbNo: { de: 'Falsch — „warten auf" + Akkusativ.', en: 'Wrong — „warten auf" + accusative.' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Präpositionaladverb · darauf', en: 'Pronominal adverb · darauf' },
+    q: { de: '„Ich achte ___, dass die Werte stimmen." (achten auf)', en: '„Ich achte ___, dass die Werte stimmen." (I make sure that …)' },
+    bank: ['darauf', 'darüber', 'dafür'],
+    correctWord: 'darauf',
+    fbOk: { de: '✓ Richtig! „achten auf" → „darauf, dass …".', en: '✓ Right! „achten auf" → „darauf, dass …".' },
+    fbNo: { de: 'Falsch — „achten auf" ergibt „darauf, dass …".', en: 'Wrong — „achten auf" gives „darauf, dass …".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Fragewort · worauf', en: 'Question word · worauf' },
+    q: { de: 'Frage: „___ wartest du?" (warten auf)', en: 'Question: „___ wartest du?" (What … for?)' },
+    options: ['Worauf', 'Worüber', 'Wofür'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „warten auf" → „Worauf wartest du?".', en: '✓ Right! „warten auf" → „Worauf wartest du?".' },
+    fbNo: { de: 'Falsch — zu „warten auf" fragt man „Worauf …?".', en: 'Wrong — for „warten auf" ask „Worauf …?".' },
+  },
+
+  // --- Genitiv-Präpositionen ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'wegen + Genitiv', en: 'wegen + genitive' },
+    q: { de: 'Genitiv-Präposition: „___ des Personalmangels sind alle überlastet."', en: 'Genitive preposition: „___ des Personalmangels sind alle überlastet." (because of)' },
+    options: ['Wegen', 'Weil', 'Trotz'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „wegen" + Genitiv = Grund. („weil" leitet einen Nebensatz ein.)', en: '✓ Right! „wegen" + genitive = reason. („weil" starts a clause.)' },
+    fbNo: { de: 'Falsch — den Grund nennt „wegen" + Genitiv.', en: 'Wrong — the reason takes „wegen" + genitive.' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'trotz + Genitiv', en: 'trotz + genitive' },
+    q: { de: '„___ des Stresses bleibt sie freundlich." (Gegensatz)', en: '„___ des Stresses bleibt sie freundlich." (despite)' },
+    bank: ['Trotz', 'Wegen', 'Während'],
+    correctWord: 'Trotz',
+    fbOk: { de: '✓ Richtig! „trotz" + Genitiv drückt den Gegensatz aus.', en: '✓ Right! „trotz" + genitive expresses concession.' },
+    fbNo: { de: 'Falsch — der Gegensatz mit Genitiv → „trotz des …".', en: 'Wrong — concession with genitive → „trotz".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'während + Genitiv', en: 'während + genitive' },
+    q: { de: 'Zeit (Präposition): „___ der Nachtschicht war es ruhig."', en: 'Time (preposition): „___ der Nachtschicht war es ruhig." (during)' },
+    options: ['Während', 'Bis', 'Seit'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „während" + Genitiv = Zeitraum: „während der Nachtschicht".', en: '✓ Right! „während" + genitive = time span.' },
+    fbNo: { de: 'Falsch — der Zeitraum mit Genitiv → „während der …".', en: 'Wrong — time span with genitive → „während".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'aufgrund + Genitiv', en: 'aufgrund + genitive' },
+    q: { de: '„___ eines Notfalls wurde der Termin verschoben." (Grund, formell)', en: '„___ eines Notfalls wurde der Termin verschoben." (due to)' },
+    bank: ['Aufgrund', 'Obwohl', 'Damit'],
+    correctWord: 'Aufgrund',
+    fbOk: { de: '✓ Richtig! „aufgrund" + Genitiv nennt formell den Grund.', en: '✓ Right! „aufgrund" + genitive states the reason formally.' },
+    fbNo: { de: 'Falsch — formeller Grund mit Genitiv → „aufgrund eines …".', en: 'Wrong — formal reason with genitive → „aufgrund".' },
+  },
+
+  // --- Nominalisierung / Wortbildung ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Nominalisierung · -ung', en: 'Nominalisation · -ung' },
+    q: { de: 'Nomen zu „untersuchen": die ___', en: 'Noun for „untersuchen": die ___ (examination)' },
+    options: ['Untersuchung', 'Untersuchen', 'Untersuch'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „untersuchen" → die Untersuchung (-ung, feminin).', en: '✓ Right! „untersuchen" → die Untersuchung.' },
+    fbNo: { de: 'Falsch — das Nomen ist „die Untersuchung".', en: 'Wrong — the noun is „die Untersuchung".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Nominalstil', en: 'Nominal style' },
+    q: { de: '„Nach der ___ des Patienten begann die Behandlung." (aufnehmen → Nomen)', en: '„Nach der ___ des Patienten begann die Behandlung." (admission)' },
+    bank: ['Aufnahme', 'Aufnehmung', 'Annahme'],
+    correctWord: 'Aufnahme',
+    fbOk: { de: '✓ Richtig! „aufnehmen" → die Aufnahme. („Annahme" gehört zu „annehmen".)', en: '✓ Right! „aufnehmen" → die Aufnahme.' },
+    fbNo: { de: 'Falsch — zu „aufnehmen" gehört „die Aufnahme".', en: 'Wrong — „aufnehmen" → „die Aufnahme".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Wortbildung · betreuen', en: 'Word formation · betreuen' },
+    q: { de: 'Welches Verb ist richtig? „Die Pflegerin ___ den Patienten."', en: 'Which verb is correct? „Die Pflegerin ___ den Patienten." (looks after)' },
+    options: ['betreut', 'treut', 'vertreut'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „betreuen" (be- macht es transitiv): „betreut den Patienten".', en: '✓ Right! „betreuen": „betreut den Patienten".' },
+    fbNo: { de: 'Falsch — das Verb heißt „betreuen".', en: 'Wrong — the verb is „betreuen".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Adjektiv → Nomen · -heit', en: 'Adjective → noun · -heit' },
+    q: { de: '„Die ___ der Patienten hat Vorrang." (sicher → Nomen)', en: '„Die ___ der Patienten hat Vorrang." (safety)' },
+    bank: ['Sicherheit', 'Sicherung', 'Sicherkeit'],
+    correctWord: 'Sicherheit',
+    fbOk: { de: '✓ Richtig! „sicher" → die Sicherheit (-heit).', en: '✓ Right! „sicher" → die Sicherheit.' },
+    fbNo: { de: 'Falsch — das Nomen zu „sicher" ist „die Sicherheit".', en: 'Wrong — the noun of „sicher" is „die Sicherheit".' },
+  },
+
+  // --- Modalverben subjektiv (Vermutung) ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Vermutung · müsste', en: 'Assumption · müsste' },
+    q: { de: 'Vermutung (fast sicher): „Sie ___ im Dienst sein, das Licht brennt."', en: 'Assumption (almost certain): „Sie ___ im Dienst sein, das Licht brennt." (must)' },
+    options: ['müsste', 'dürfte nicht', 'kann nicht'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „müsste" = starke Vermutung / logischer Schluss.', en: '✓ Right! „müsste" = strong assumption / logical conclusion.' },
+    fbNo: { de: 'Falsch — „müsste" drückt hier die starke Vermutung aus.', en: 'Wrong — „müsste" expresses the strong assumption.' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Vermutung · dürfte', en: 'Assumption · dürfte' },
+    q: { de: '„Er ___ etwa 60 sein." (vorsichtige Vermutung)', en: '„Er ___ etwa 60 sein." (is probably about 60)' },
+    bank: ['dürfte', 'muss', 'will'],
+    correctWord: 'dürfte',
+    fbOk: { de: '✓ Richtig! „dürfte" = vorsichtige Vermutung.', en: '✓ Right! „dürfte" = cautious assumption.' },
+    fbNo: { de: 'Falsch — die vorsichtige Vermutung nutzt „dürfte".', en: 'Wrong — a cautious guess uses „dürfte".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Möglichkeit · könnte', en: 'Possibility · könnte' },
+    q: { de: 'Möglichkeit: „Das ___ eine allergische Reaktion sein."', en: 'Possibility: „Das ___ eine allergische Reaktion sein." (could)' },
+    options: ['könnte', 'muss', 'darf'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „könnte" = Möglichkeit / Vermutung.', en: '✓ Right! „könnte" = possibility.' },
+    fbNo: { de: 'Falsch — die Möglichkeit drückt „könnte" aus.', en: 'Wrong — possibility is expressed with „könnte".' },
+  },
+
+  // --- Partizip als Adjektiv ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Partizip II als Adjektiv', en: 'Past participle as adjective' },
+    q: { de: 'Partizip als Adjektiv: „der ___ Patient" (verletzen)', en: 'Participle as adjective: „der ___ Patient" (injured)' },
+    options: ['verletzte', 'verletzende', 'verletzen'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Partizip II „verletzt" → „der verletzte Patient" (abgeschlossen, passivisch).', en: '✓ Right! Past participle → „der verletzte Patient".' },
+    fbNo: { de: 'Falsch — Partizip II: „der verletzte Patient".', en: 'Wrong — past participle: „der verletzte Patient".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Partizip I als Adjektiv', en: 'Present participle as adjective' },
+    q: { de: '„die ___ Schmerzen" (zunehmen: immer stärker)', en: '„die ___ Schmerzen" (increasing pain)' },
+    bank: ['zunehmenden', 'zugenommenen', 'zunehmen'],
+    correctWord: 'zunehmenden',
+    fbOk: { de: '✓ Richtig! Partizip I „zunehmend" (gleichzeitig, aktiv) → „die zunehmenden Schmerzen".', en: '✓ Right! Present participle → „die zunehmenden Schmerzen".' },
+    fbNo: { de: 'Falsch — Partizip I: „die zunehmenden Schmerzen".', en: 'Wrong — present participle: „die zunehmenden Schmerzen".' },
+  },
+
+  // --- Wortschatz: Bewerbung & Arbeitswelt ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Bewerbung · Lebenslauf', en: 'Application · CV' },
+    q: { de: 'Bewerbung: „Ich schicke meinen ___ und das Anschreiben."', en: 'Application: „Ich schicke meinen ___ und das Anschreiben." (CV)' },
+    options: ['Lebenslauf', 'Lebensablauf', 'Lebenslaufen'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „der Lebenslauf" = CV.', en: '✓ Right! „der Lebenslauf" = CV.' },
+    fbNo: { de: 'Falsch — das Dokument heißt „der Lebenslauf".', en: 'Wrong — the document is „der Lebenslauf".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Arbeitsvertrag', en: 'Employment contract' },
+    q: { de: 'Arbeitswelt: „Nach der Probezeit bekam sie einen ___."', en: 'Work: „Nach der Probezeit bekam sie einen ___." (permanent contract)' },
+    options: ['unbefristeten Vertrag', 'unbefristigen Vertrag', 'unbefristlichen Vertrag'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „ein unbefristeter Vertrag" = ohne Enddatum.', en: '✓ Right! „ein unbefristeter Vertrag" = open-ended.' },
+    fbNo: { de: 'Falsch — korrekt ist „unbefristeter Vertrag".', en: 'Wrong — correct is „unbefristeter Vertrag".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'sich bewerben', en: 'to apply' },
+    q: { de: '„Sie hat sich auf die Stelle als Pflegefachkraft ___." (bewerben, Perfekt)', en: '„Sie hat sich auf die Stelle als Pflegefachkraft ___." (has applied)' },
+    bank: ['beworben', 'geworben', 'beworbt'],
+    correctWord: 'beworben',
+    fbOk: { de: '✓ Richtig! „sich bewerben" → Perfekt „hat sich beworben".', en: '✓ Right! „sich bewerben" → „hat sich beworben".' },
+    fbNo: { de: 'Falsch — Partizip II von „bewerben" ist „beworben".', en: 'Wrong — past participle of „bewerben" is „beworben".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Vorstellungsgespräch', en: 'Job interview' },
+    q: { de: 'Beruf: „Das ___ ist nächste Woche." (Termin zum Vorstellen)', en: 'Work: „Das ___ ist nächste Woche." (job interview)' },
+    options: ['Vorstellungsgespräch', 'Vorstellgespräch', 'Vorstellungsrede'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „das Vorstellungsgespräch" = Job-Interview.', en: '✓ Right! „das Vorstellungsgespräch" = job interview.' },
+    fbNo: { de: 'Falsch — es heißt „das Vorstellungsgespräch".', en: 'Wrong — it is „das Vorstellungsgespräch".' },
+  },
+
+  // --- Wortschatz: Pflege & Gesundheit ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Pflege · Blutdruck messen', en: 'Care · measuring blood pressure' },
+    q: { de: 'Pflege: „Die Pflegekraft ___ den Blutdruck."', en: 'Care: „Die Pflegekraft ___ den Blutdruck." (measures)' },
+    options: ['misst', 'messt', 'mißt nach'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „messen": „sie misst den Blutdruck".', en: '✓ Right! „messen": „sie misst".' },
+    fbNo: { de: 'Falsch — „messen": „sie misst den Blutdruck".', en: 'Wrong — „messen": „sie misst".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'klagen über', en: 'to complain of' },
+    q: { de: '„Der Patient klagt ___ Kopfschmerzen." (Beschwerden äußern)', en: '„Der Patient klagt ___ Kopfschmerzen." (complains of)' },
+    bank: ['über', 'auf', 'für'],
+    correctWord: 'über',
+    fbOk: { de: '✓ Richtig! „klagen über" + Akkusativ = Beschwerden äußern.', en: '✓ Right! „klagen über" + accusative.' },
+    fbNo: { de: 'Falsch — man „klagt über" etwas.', en: 'Wrong — one „klagt über" something.' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Symptome', en: 'Symptoms' },
+    q: { de: 'Gesundheit: „Fieber, Husten und Schnupfen sind ___."', en: 'Health: „Fieber, Husten und Schnupfen sind ___." (symptoms)' },
+    options: ['Symptome', 'Symptomen', 'Symptomer'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! Plural: „die Symptome".', en: '✓ Right! Plural: „die Symptome".' },
+    fbNo: { de: 'Falsch — der Plural ist „die Symptome".', en: 'Wrong — the plural is „die Symptome".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Übergabe (Schichtwechsel)', en: 'Handover (shift change)' },
+    q: { de: '„Bei der ___ informiert die Frühschicht die Spätschicht." (Schichtwechsel)', en: '„Bei der ___ informiert die Frühschicht die Spätschicht." (handover)' },
+    bank: ['Übergabe', 'Übernahme', 'Übergang'],
+    correctWord: 'Übergabe',
+    fbOk: { de: '✓ Richtig! „die Übergabe" = Informationsweitergabe beim Schichtwechsel.', en: '✓ Right! „die Übergabe" = shift handover.' },
+    fbNo: { de: 'Falsch — der Fachbegriff ist „die Übergabe".', en: 'Wrong — the term is „die Übergabe".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'Schweigepflicht', en: 'Confidentiality' },
+    q: { de: 'Recht im Beruf: „Pflegekräfte haben eine ___ über Patientendaten."', en: 'Work ethics: „Pflegekräfte haben eine ___ über Patientendaten." (duty of confidentiality)' },
+    options: ['Schweigepflicht', 'Sprechpflicht', 'Schweigerecht'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „die Schweigepflicht" = Pflicht zur Verschwiegenheit.', en: '✓ Right! „die Schweigepflicht" = duty of confidentiality.' },
+    fbNo: { de: 'Falsch — es heißt „die Schweigepflicht".', en: 'Wrong — it is „die Schweigepflicht".' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Fachwort · verabreichen', en: 'Term · to administer' },
+    q: { de: '„Der Arzt ordnet an, dem Patienten ein Schmerzmittel zu ___." (fachsprachlich für geben)', en: '„Der Arzt ordnet an, dem Patienten ein Schmerzmittel zu ___." (to administer)' },
+    bank: ['verabreichen', 'verabreden', 'verarbeiten'],
+    correctWord: 'verabreichen',
+    fbOk: { de: '✓ Richtig! „ein Medikament verabreichen" = fachsprachlich „geben".', en: '✓ Right! „verabreichen" = to administer (medication).' },
+    fbNo: { de: 'Falsch — der Fachbegriff ist „verabreichen".', en: 'Wrong — the term is „verabreichen".' },
+  },
+
+  // --- Redemittel (Beruf) ---
+  {
+    level: 'B2', target: 'de', type: 'mc',
+    topic: { de: 'höflich widersprechen', en: 'polite disagreement' },
+    q: { de: 'Höflich widersprechen: „Da ___ ich Ihnen leider nicht ganz zustimmen."', en: 'Polite disagreement: „Da ___ ich Ihnen leider nicht ganz zustimmen." (I cannot quite agree)' },
+    options: ['kann', 'darf nicht', 'muss'],
+    correctIndex: 0,
+    fbOk: { de: '✓ Richtig! „Da kann ich Ihnen leider nicht ganz zustimmen." = höfliche Ablehnung.', en: '✓ Right! A polite way to disagree.' },
+    fbNo: { de: 'Falsch — höflich: „Da kann ich Ihnen leider nicht ganz zustimmen."', en: 'Wrong — polite form: „Da kann ich Ihnen … nicht ganz zustimmen."' },
+  },
+  {
+    level: 'B2', target: 'de', type: 'blank',
+    topic: { de: 'Vorschlag / Rat', en: 'Suggestion / advice' },
+    q: { de: '„An Ihrer Stelle ___ ich zuerst die Werte kontrollieren." (Rat)', en: '„An Ihrer Stelle ___ ich zuerst die Werte kontrollieren." (I would …)' },
+    bank: ['würde', 'werde', 'wurde'],
+    correctWord: 'würde',
+    fbOk: { de: '✓ Richtig! Rat mit Konjunktiv II: „würde … kontrollieren".', en: '✓ Right! Advice uses Konjunktiv II: „würde".' },
+    fbNo: { de: 'Falsch — ein Rat steht im Konjunktiv II: „würde".', en: 'Wrong — advice takes Konjunktiv II: „würde".' },
+  },
 ]
 
-/** Anzahl je Level (fürs UI). */
-export function countByLevel(): Record<ExLevel, number> {
+const targetOf = (e: LibraryExercise): ExTarget => e.target ?? 'sr'
+
+/** Anzahl je Level für eine Zielsprache (fürs UI). */
+export function countByLevel(target: ExTarget = 'sr'): Record<ExLevel, number> {
   const c: Record<ExLevel, number> = { B1: 0, B2: 0, C1: 0 }
-  for (const e of EXERCISES) c[e.level]++
+  for (const e of EXERCISES) if (targetOf(e) === target) c[e.level]++
   return c
 }
 
-/** Übungen eines Levels in kuratierter Reihenfolge. */
-export function exercisesForLevel(level: ExLevel): LibraryExercise[] {
-  return EXERCISES.filter((e) => e.level === level)
+/** Übungen eines Levels + einer Zielsprache in kuratierter Reihenfolge. */
+export function exercisesForLevel(level: ExLevel, target: ExTarget = 'sr'): LibraryExercise[] {
+  return EXERCISES.filter((e) => e.level === level && targetOf(e) === target)
+}
+
+/** Levels, die für eine Zielsprache überhaupt Übungen haben (für die Level-Chips). */
+export function availableLevels(target: ExTarget): ExLevel[] {
+  return (['B1', 'B2', 'C1'] as ExLevel[]).filter((l) => exercisesForLevel(l, target).length > 0)
 }
