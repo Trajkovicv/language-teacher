@@ -158,7 +158,8 @@ app.get('/api/health', (_req, res) => {
     mail: mailConfigured(),
     // Deploy-Marker: erlaubt sicheres Erkennen, dass die neue Version live ist,
     // bevor ein Test-Versand ausgelöst wird.
-    rev: 'report-v4',
+    rev: 'report-v5',
+    mailApi: Boolean(process.env.BREVO_API_KEY),
   });
 });
 
