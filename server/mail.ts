@@ -28,7 +28,6 @@ function makeTransport(): nodemailer.Transporter {
     connectionTimeout: 15_000,
     greetingTimeout: 10_000,
     socketTimeout: 20_000,
-    pool: false,
   });
 }
 
